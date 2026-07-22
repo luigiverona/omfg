@@ -6,15 +6,29 @@ Version 0.1.0 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a
 
 ## Installation
 
-The future public bootstrap command is:
+Install the current release with:
 
 ```bash
 curl -fsSL https://omfg.luigiverona.dev/install | bash
 ```
 
-The repository does not publish that URL yet. The canonical source is [`bootstrap/install`](bootstrap/install). It requires Python 3.11 or newer, downloads an immutable versioned archive, checks its SHA-256 digest, rejects links, special files, and escaping archive paths, extracts it to `~/.local/share/omfg/releases/<version>`, atomically changes the `current` symlink, and creates `~/.local/bin/omfg`. It exits without running setup. Releases may pin the digest in the installer; the source also supports a separately published `.sha256` file and `OMFG_RELEASE_SHA256` for controlled validation.
+The canonical source is [`bootstrap/install`](bootstrap/install). It requires Python 3.11 or newer, downloads an immutable versioned archive, checks its SHA-256 digest, rejects links, special files, and escaping archive paths, extracts it to `~/.local/share/omfg/releases/<version>`, atomically changes the `current` symlink, and creates `~/.local/bin/omfg`. It exits without running setup.
 
-Piping an installer into a shell gives the server control of your user account and is inherently risky. Inspect the installer first, use HTTPS, and compare its pinned or independently published digest. Archive verification protects against corruption or an archive differing from the expected digest; a digest fetched from the same compromised origin is not an independent trust anchor.
+Piping an installer into a shell gives the server control of your user account and is inherently risky. To inspect it before running:
+
+```bash
+curl -fsSL https://omfg.luigiverona.dev/install -o install
+less install
+bash install
+```
+
+You can pin the expected release archive digest explicitly:
+
+```bash
+OMFG_RELEASE_SHA256=4358b62ca9479ce95fb80020c4aed5e95d0aaa83e1bafb4685de0ad3ebfbc47a bash install
+```
+
+The installer otherwise obtains the adjacent published `.sha256` file. Archive verification protects against corruption or an archive differing from the expected digest, but a checksum fetched from the same compromised domain does not provide independent authenticity. For independent verification, compare the digest with the immutable GitHub release and its artifact attestation before running the installer.
 
 For development:
 
