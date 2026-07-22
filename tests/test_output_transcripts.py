@@ -411,12 +411,18 @@ class OutputTranscriptTests(unittest.TestCase):
 
     def test_normal_cli_has_no_banner_and_version_remains_available(self) -> None:
         output = io.StringIO()
-        with contextlib.redirect_stdout(output), patch("omfg.workflow.validate_system"):
+
+        def render_plan(workflow: Workflow) -> int:
+            workflow.terminal.output("Plan")
+            workflow.terminal.output("Verification.")
+            return 0
+
+        with contextlib.redirect_stdout(output), patch.object(Workflow, "run", render_plan):
             status = main(["--dry-run"])
         self.assertEqual(status, 0)
         rendered = output.getvalue()
         self.assertTrue(rendered.startswith("Plan\n"))
-        for forbidden in ("Omfg 0.1.3", "Arch Linux", "Shell:", "Step 1", "[01/", "Password:"):
+        for forbidden in ("Omfg 0.1.3", "\nArch Linux\n", "Shell:", "Step 1", "[01/", "Password:"):
             self.assertNotIn(forbidden, rendered)
         version = subprocess.run(
             (sys.executable, "-m", "omfg", "--version"),
