@@ -33,16 +33,16 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: |
-          test "$(git cat-file -t "$RELEASE_TAG")" = tag
-          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          git merge-base --is-ancestor "$RELEASE_TAG^{commit}" origin/main
+          test "$(git -c safe.directory="$GITHUB_WORKSPACE" cat-file -t "$RELEASE_TAG")" = tag
+          test "$(git -c safe.directory="$GITHUB_WORKSPACE" rev-parse "$RELEASE_TAG^{commit}")" = "$(git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD)"
+          git -c safe.directory="$GITHUB_WORKSPACE" fetch --no-tags origin main:refs/remotes/origin/main
+          git -c safe.directory="$GITHUB_WORKSPACE" merge-base --is-ancestor "$RELEASE_TAG^{commit}" origin/main
       - name: Create clean independent checkouts
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: |
-          git clone --no-hardlinks "$GITHUB_WORKSPACE" /tmp/omfg-build-one
-          git clone --no-hardlinks "$GITHUB_WORKSPACE" /tmp/omfg-build-two
+          git -c safe.directory="$GITHUB_WORKSPACE" clone --no-hardlinks "$GITHUB_WORKSPACE" /tmp/omfg-build-one
+          git -c safe.directory="$GITHUB_WORKSPACE" clone --no-hardlinks "$GITHUB_WORKSPACE" /tmp/omfg-build-two
           git -C /tmp/omfg-build-one checkout --detach "$RELEASE_TAG"
           git -C /tmp/omfg-build-two checkout --detach "$RELEASE_TAG"
           useradd --create-home omfg-ci
@@ -65,7 +65,7 @@ jobs:
           su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --app browser --dry-run"
           su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --github --dry-run"
           su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --codex --dry-run"
-          git -C /tmp/omfg-build-one diff --check
+          su omfg-ci -c "git -C /tmp/omfg-build-one diff --check"
       - name: Build and validate twice
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
