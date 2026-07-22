@@ -32,8 +32,8 @@ assert_common_install() {
   [[ -f ${release}/pyproject.toml ]]
   [[ -f ${release}/src/omfg/cli.py ]]
   runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --version
-  runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --help >/dev/null
-  runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --dry-run >/dev/null
+  runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --help
+  runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --dry-run
   [[ ! -e ${home}/.local/bin/codex ]]
   [[ ! -e ${home}/.local/bin/codex-01 ]]
   [[ ! -e ${home}/.local/bin/codex-02 ]]
