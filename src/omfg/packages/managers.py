@@ -38,14 +38,19 @@ class PacmanManager:
 class AurManager:
     AUR_BASE = "https://aur.archlinux.org"
 
-    def __init__(self, runner: CommandRunner, workspace: Path) -> None:
+    def __init__(
+        self,
+        runner: CommandRunner,
+        workspace: Path,
+        makepkg_config_source: Path = Path("/etc/makepkg.conf"),
+    ) -> None:
         self.runner = runner
         self.workspace = workspace
+        self.makepkg_config_source = makepkg_config_source
 
     def _makepkg_config(self) -> Path:
-        source = Path("/etc/makepkg.conf")
         try:
-            content = source.read_text(encoding="utf-8")
+            content = self.makepkg_config_source.read_text(encoding="utf-8")
         except OSError as exc:
             raise ValidationError("aur", "configure makepkg", str(exc)) from exc
         content += """

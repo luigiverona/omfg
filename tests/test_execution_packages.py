@@ -119,6 +119,8 @@ class ExecutionTests(unittest.TestCase):
             workspace = Path(raw)
             clone = workspace / "aur/yay-bin"
             config = workspace / "state/makepkg.conf"
+            system_config = workspace / "system-makepkg.conf"
+            system_config.write_text("OPTIONS=(strip debug)\n", encoding="utf-8")
             origin_argv = ("git", "-C", str(clone), "remote", "get-url", "origin")
             metadata_argv = ("makepkg", "--config", str(config), "--printsrcinfo")
             package_argv = ("makepkg", "--config", str(config), "--packagelist")
@@ -140,7 +142,7 @@ class ExecutionTests(unittest.TestCase):
                 ),
             }
             runner = FakeRunner(responses)
-            AurManager(runner, workspace).bootstrap_yay()  # type: ignore[arg-type]
+            AurManager(runner, workspace, system_config).bootstrap_yay()  # type: ignore[arg-type]
             commands = [command.argv for command in runner.commands]
             self.assertIn(
                 ("makepkg", "--config", str(config), "--cleanbuild", "--noconfirm"),
@@ -155,8 +157,12 @@ class ExecutionTests(unittest.TestCase):
     def test_aur_installs_only_requested_identifiers_one_at_a_time(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             workspace = Path(raw)
+            system_config = workspace / "system-makepkg.conf"
+            system_config.write_text("OPTIONS=(strip debug)\n", encoding="utf-8")
             runner = FakeRunner()
-            AurManager(runner, workspace).install(("z-bin", "a-bin", "a-bin"))  # type: ignore[arg-type]
+            AurManager(runner, workspace, system_config).install(  # type: ignore[arg-type]
+                ("z-bin", "a-bin", "a-bin")
+            )
             installs = [command for command in runner.commands if command.argv[:2] == ("yay", "-S")]
             self.assertEqual([command.argv[-1] for command in installs], ["a-bin", "z-bin"])
             self.assertTrue(all(len(command.failure_packages) == 1 for command in installs))
