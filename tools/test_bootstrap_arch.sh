@@ -26,19 +26,19 @@ assert_common_install() {
   local home="/home/${user}"
   local release="${home}/.local/share/omfg/releases/${VERSION}"
 
-  [[ -x ${home}/.local/bin/omfg ]]
-  [[ -L ${home}/.local/share/omfg/current ]]
-  [[ $(readlink "${home}/.local/share/omfg/current") == "releases/${VERSION}" ]]
-  [[ -f ${release}/pyproject.toml ]]
-  [[ -f ${release}/src/omfg/cli.py ]]
+  [[ -x ${home}/.local/bin/omfg ]] || { printf 'launcher is missing for %s\n' "${user}" >&2; exit 1; }
+  [[ -L ${home}/.local/share/omfg/current ]] || { printf 'current link is missing for %s\n' "${user}" >&2; exit 1; }
+  [[ $(readlink "${home}/.local/share/omfg/current") == "releases/${VERSION}" ]] || { printf 'current link has the wrong target for %s\n' "${user}" >&2; exit 1; }
+  [[ -f ${release}/pyproject.toml ]] || { printf 'installed project metadata is missing for %s\n' "${user}" >&2; exit 1; }
+  [[ -f ${release}/src/omfg/cli.py ]] || { printf 'installed CLI is missing for %s\n' "${user}" >&2; exit 1; }
   runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --version
   runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --help
   runuser -u "${user}" -- env HOME="${home}" "${home}/.local/bin/omfg" --dry-run
-  [[ ! -e ${home}/.local/bin/codex ]]
-  [[ ! -e ${home}/.local/bin/codex-01 ]]
-  [[ ! -e ${home}/.local/bin/codex-02 ]]
-  [[ ! -e ${home}/.codex ]]
-  [[ ! -e ${home}/.local/share/omfg/codex ]]
+  [[ ! -e ${home}/.local/bin/codex ]] || { printf 'unscoped Codex launcher exists for %s\n' "${user}" >&2; exit 1; }
+  [[ ! -e ${home}/.local/bin/codex-01 ]] || { printf 'Codex profile launcher exists before setup for %s\n' "${user}" >&2; exit 1; }
+  [[ ! -e ${home}/.local/bin/codex-02 ]] || { printf 'Codex profile launcher exists before setup for %s\n' "${user}" >&2; exit 1; }
+  [[ ! -e ${home}/.codex ]] || { printf 'default Codex state exists for %s\n' "${user}" >&2; exit 1; }
+  [[ ! -e ${home}/.local/share/omfg/codex ]] || { printf 'Codex profile state exists before setup for %s\n' "${user}" >&2; exit 1; }
   if find "${home}" -xdev -user root -print -quit | grep -q .; then
     printf 'root-owned file found in %s\n' "${home}" >&2
     exit 1
@@ -70,19 +70,19 @@ useradd --create-home --shell /bin/bash omfg-bad-checksum
 install_twice omfg-fish
 # Compare the literal line written by the installer.
 # shellcheck disable=SC2016
-[[ $(grep -Fxc 'fish_add_path --global --move $HOME/.local/bin' /home/omfg-fish/.config/fish/conf.d/omfg.fish) -eq 1 ]]
+[[ $(grep -Fxc 'fish_add_path --global --move $HOME/.local/bin' /home/omfg-fish/.config/fish/conf.d/omfg.fish || true) -eq 1 ]] || { printf 'fish PATH entry is missing or duplicated\n' >&2; exit 1; }
 [[ ! -e /home/omfg-fish/.bashrc && ! -e /home/omfg-fish/.zshrc ]]
 
 install_twice omfg-bash
 # Compare the literal line written by the installer.
 # shellcheck disable=SC2016
-[[ $(grep -Fxc 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac' /home/omfg-bash/.bashrc) -eq 1 ]]
+[[ $(grep -Fxc 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac' /home/omfg-bash/.bashrc || true) -eq 1 ]] || { printf 'Bash PATH entry is missing or duplicated\n' >&2; exit 1; }
 [[ ! -e /home/omfg-bash/.config/fish/conf.d/omfg.fish && ! -e /home/omfg-bash/.zshrc ]]
 
 install_twice omfg-zsh
 # Compare the literal line written by the installer.
 # shellcheck disable=SC2016
-[[ $(grep -Fxc 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac' /home/omfg-zsh/.zshrc) -eq 1 ]]
+[[ $(grep -Fxc 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac' /home/omfg-zsh/.zshrc || true) -eq 1 ]] || { printf 'Zsh PATH entry is missing or duplicated\n' >&2; exit 1; }
 [[ ! -e /home/omfg-zsh/.config/fish/conf.d/omfg.fish && ! -e /home/omfg-zsh/.bashrc ]]
 
 if runuser -u omfg-bad-checksum -- env HOME=/home/omfg-bad-checksum \
