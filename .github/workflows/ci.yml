@@ -45,7 +45,8 @@ jobs:
       - run: su omfg-ci -c "cd '$GITHUB_WORKSPACE' && PYTHONPATH=src python -m unittest discover"
       - run: bash -n bootstrap/install
       - run: su omfg-ci -c "python -m venv /tmp/omfg-ci-venv"
-      - run: su omfg-ci -c "cd '$GITHUB_WORKSPACE' && /tmp/omfg-ci-venv/bin/python -m pip install --disable-pip-version-check --no-deps ."
+      - run: su omfg-ci -c "cp -R '$GITHUB_WORKSPACE' /tmp/omfg-ci-source"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/python -m pip install --disable-pip-version-check --no-deps /tmp/omfg-ci-source"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --help"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --version"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --dry-run"
