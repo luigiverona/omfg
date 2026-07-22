@@ -22,13 +22,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Install validation dependencies
+        run: pacman -Syu --noconfirm python git shellcheck sudo curl flatpak
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'push' && github.ref || inputs.tag }}
-      - name: Install validation dependencies
-        run: pacman -Syu --noconfirm python git shellcheck sudo curl flatpak
       - name: Verify annotated tag and main ancestry
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}

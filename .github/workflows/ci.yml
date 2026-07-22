@@ -40,14 +40,14 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     steps:
-      - uses: actions/checkout@v7
       - run: pacman -Syu --noconfirm python git shellcheck sudo curl flatpak
+      - uses: actions/checkout@v7
       - run: useradd --create-home omfg-ci
-      - run: python -m compileall src tests
-      - run: su omfg-ci -c "cd '$GITHUB_WORKSPACE' && PYTHONPATH=src python -m unittest discover"
+      - run: su omfg-ci -c "cp -R '$GITHUB_WORKSPACE' /tmp/omfg-ci-source"
+      - run: su omfg-ci -c "cd /tmp/omfg-ci-source && python -m compileall src tests"
+      - run: su omfg-ci -c "cd /tmp/omfg-ci-source && PYTHONPATH=src python -m unittest discover"
       - run: bash -n bootstrap/install
       - run: su omfg-ci -c "python -m venv /tmp/omfg-ci-venv"
-      - run: su omfg-ci -c "cp -R '$GITHUB_WORKSPACE' /tmp/omfg-ci-source"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/python -m pip install --disable-pip-version-check --no-deps /tmp/omfg-ci-source"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --help"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --version"
