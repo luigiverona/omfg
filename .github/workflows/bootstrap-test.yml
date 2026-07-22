@@ -1,0 +1,34 @@
+name: Bootstrap installation
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable release to test
+        required: true
+        default: v0.1.0
+      sha256:
+        description: Expected runtime archive SHA-256
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install bootstrap prerequisites
+        run: pacman -Syu --noconfirm curl fish python shellcheck zsh
+      - name: Test deployed bootstrap as unprivileged users
+        env:
+          OMFG_TEST_TAG: ${{ inputs.tag }}
+          OMFG_TEST_SHA256: ${{ inputs.sha256 }}
+        run: bash tools/test_bootstrap_arch.sh
