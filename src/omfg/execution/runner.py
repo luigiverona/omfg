@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,9 +28,16 @@ class CommandResult:
 
 
 class CommandRunner:
-    def __init__(self, *, dry_run: bool = False, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        output: Callable[[str], None] = print,
+    ) -> None:
         self.dry_run = dry_run
         self.verbose = verbose
+        self.output = output
         self.history: list[Command] = []
 
     @staticmethod
@@ -43,6 +51,9 @@ class CommandRunner:
         if not command.argv or any("\0" in arg for arg in command.argv):
             raise CommandError("command", "validate", "invalid argument vector")
         self.history.append(command)
+        if self.verbose:
+            rendered = shlex.join(command.argv)
+            self.output("$ " + self.redact(rendered, command.sensitive_values))
         if self.dry_run and command.mutate:
             return CommandResult(command.argv, 0, "", "")
         env = os.environ.copy()
@@ -62,6 +73,11 @@ class CommandRunner:
             self.redact(completed.stdout, command.sensitive_values),
             self.redact(completed.stderr, command.sensitive_values),
         )
+        if self.verbose:
+            if result.stdout:
+                self.output(result.stdout.rstrip())
+            if result.stderr:
+                self.output(result.stderr.rstrip())
         if check and result.returncode:
             reason = (
                 result.stderr.strip().splitlines()[-1]

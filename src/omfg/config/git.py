@@ -31,4 +31,8 @@ class GitConfigurator:
                 self.runner.run(Command(("git", "config", "--global", key, value)))
 
     def verify(self) -> bool:
-        return all(self.get(key) for key in ("user.name", "user.email", "init.defaultBranch"))
+        return bool(
+            self.get("user.name")
+            and self.get("user.email")
+            and self.get("init.defaultBranch") == "main"
+        )

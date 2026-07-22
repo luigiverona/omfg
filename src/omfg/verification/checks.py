@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import platform
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 from omfg.config.shell import ShellInfo, path_configured
 from omfg.execution import Command, CommandRunner
-from omfg.models import Package, Source
+from omfg.models import Package
+from omfg.planning.state import StateInspector
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,22 +28,8 @@ class Verifier:
         return CheckResult("supported system", good, "Arch Linux x86_64 required")
 
     def package(self, package: Package) -> CheckResult:
-        if package.source in {Source.PACMAN, Source.AUR}:
-            result = self.runner.run(
-                Command(("pacman", "-Q", package.identifier), mutate=False), check=False
-            )
-        elif package.source is Source.FLATPAK:
-            result = self.runner.run(
-                Command(("flatpak", "info", "--user", package.identifier), mutate=False),
-                check=False,
-            )
-        else:
-            executable = package.executable or package.identifier
-            found = (self.home / ".local/bin" / executable).is_file() or shutil.which(
-                executable
-            ) is not None
-            return CheckResult(package.name, found, "not installed")
-        return CheckResult(package.name, result.returncode == 0, "not installed")
+        installed = StateInspector(self.runner, self.home).package_installed(package)
+        return CheckResult(package.name, installed, "not installed")
 
     def path(self) -> CheckResult:
         expected = str(self.home / ".local/bin")

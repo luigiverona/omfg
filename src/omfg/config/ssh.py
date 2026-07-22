@@ -44,17 +44,26 @@ class SSHManager:
                 keys.append(RemoteKey(int(parts[0]), parts[1], fingerprint_text(parts[2])))
         return tuple(sorted(keys, key=lambda key: key.key_id))
 
-    def create(self, email: str) -> None:
+    def create(self, email: str) -> bool:
+        if self.ssh_dir.is_symlink():
+            raise FileExistsError("~/.ssh must not be a symbolic link")
         self.ssh_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.ssh_dir.chmod(0o700)
+        created = False
+        if self.key.is_symlink() or self.key.with_suffix(".pub").is_symlink():
+            raise FileExistsError("dedicated SSH key paths must not be symbolic links")
+        if self.key.exists() != self.key.with_suffix(".pub").exists():
+            raise FileExistsError("dedicated SSH key pair is incomplete; refusing to overwrite it")
         if not self.key.exists():
             self.runner.run(
                 Command(("ssh-keygen", "-t", "ed25519", "-f", str(self.key), "-C", email, "-N", ""))
             )
+            created = True
         if not self.runner.dry_run:
             self.key.chmod(0o600)
             self.key.with_suffix(".pub").chmod(0o644)
         self._configure_host()
+        return created
 
     def _configure_host(self) -> None:
         config = self.ssh_dir / "config"
@@ -62,6 +71,8 @@ class SSHManager:
         existing = config.read_text(encoding="utf-8") if config.exists() else ""
         content = existing if include in existing.splitlines() else include + "\n" + existing
         owned = self.ssh_dir / "config.d/omfg-github.conf"
+        if owned.parent.is_symlink():
+            raise FileExistsError("~/.ssh/config.d must not be a symbolic link")
         block = (
             "Host github.com\n"
             "    HostName github.com\n"

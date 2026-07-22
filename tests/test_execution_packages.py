@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from omfg.errors import ValidationError
-from omfg.execution import Command, CommandRunner, TemporaryWorkspace
+from omfg.execution import Command, CommandResult, CommandRunner, TemporaryWorkspace
 from omfg.packages import AurManager, FlatpakManager, PacmanManager
 from tests.helpers import FakeRunner
 
@@ -20,6 +20,19 @@ class ExecutionTests(unittest.TestCase):
 
     def test_redaction(self) -> None:
         self.assertEqual(CommandRunner.redact("token=secret", ("secret",)), "token=[REDACTED]")
+
+    def test_verbose_command_and_output_are_redacted(self) -> None:
+        output: list[str] = []
+        runner = CommandRunner(verbose=True, output=output.append)
+        runner.run(
+            Command(
+                ("printf", "%s", "secret"),
+                sensitive_values=("secret",),
+                mutate=False,
+            )
+        )
+        self.assertNotIn("secret", "\n".join(output))
+        self.assertIn("[REDACTED]", "\n".join(output))
 
     def test_workspace_success_cleanup_and_keep(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -64,9 +77,34 @@ class ExecutionTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 AurManager(FakeRunner(), Path(raw)).bootstrap_yay()  # type: ignore[arg-type]
 
-    def test_flatpak_remote_idempotent(self) -> None:
-        from omfg.execution import CommandResult
+    @patch("omfg.packages.managers.os.geteuid", return_value=1000)
+    def test_aur_validates_metadata_builds_unprivileged_and_elevates_only_install(
+        self, _: object
+    ) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            workspace = Path(raw)
+            clone = workspace / "aur/yay-bin"
+            origin_argv = ("git", "-C", str(clone), "remote", "get-url", "origin")
+            metadata_argv = ("makepkg", "--printsrcinfo")
+            package_argv = ("makepkg", "--packagelist")
+            artifact = str(clone / "yay-bin.pkg.tar.zst")
+            responses = {
+                origin_argv: CommandResult(
+                    origin_argv, 0, "https://aur.archlinux.org/yay-bin.git\n", ""
+                ),
+                metadata_argv: CommandResult(
+                    metadata_argv, 0, "pkgbase = yay-bin\npkgname = yay-bin\n", ""
+                ),
+                package_argv: CommandResult(package_argv, 0, artifact + "\n", ""),
+            }
+            runner = FakeRunner(responses)
+            AurManager(runner, workspace).bootstrap_yay()  # type: ignore[arg-type]
+            commands = [command.argv for command in runner.commands]
+            self.assertIn(("makepkg", "--cleanbuild", "--noconfirm"), commands)
+            self.assertNotIn(("makepkg", "--syncdeps", "--cleanbuild", "--noconfirm"), commands)
+            self.assertIn(("sudo", "pacman", "-U", "--noconfirm", artifact), commands)
 
+    def test_flatpak_remote_idempotent(self) -> None:
         argv = ("flatpak", "remotes", "--user", "--columns=name")
         runner = FakeRunner({argv: CommandResult(argv, 0, "flathub\n", "")})
         FlatpakManager(runner).ensure_flathub()  # type: ignore[arg-type]

@@ -66,3 +66,10 @@ def eligible_for_deletion(key: LocalKey, ssh_dir: Path, dedicated: Path) -> bool
         and private.name not in PROTECTED
         and public.name not in PROTECTED
     )
+
+
+def github_correlated_local_keys(
+    local: tuple[LocalKey, ...], remote: tuple[RemoteKey, ...]
+) -> tuple[LocalKey, ...]:
+    remote_fingerprints = frozenset(key.fingerprint for key in remote if key.fingerprint)
+    return tuple(key for key in local if key.fingerprint and key.fingerprint in remote_fingerprints)

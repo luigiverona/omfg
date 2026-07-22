@@ -20,7 +20,7 @@ def validate_system(*, require_network: bool = True) -> None:
         raise ValidationError("system", "validate operating system", "Arch Linux is required")
     if platform.machine() != "x86_64":
         raise ValidationError("system", "validate architecture", "x86_64 is required")
-    for command in ("pacman", "sudo", "curl"):
+    for command in ("pacman", "sudo", "curl", "mktemp", "sha256sum", "tar"):
         if not shutil.which(command):
             raise ValidationError("system", "validate capabilities", f"{command} is unavailable")
     if require_network:

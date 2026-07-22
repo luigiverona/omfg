@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import os
 import pwd
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from omfg.config.files import atomic_write
+
+SUPPORTED_SHELLS = frozenset({"fish", "bash", "zsh"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,58 +18,153 @@ class ShellInfo:
     source: str
 
 
-def detect_shell(
-    *, env: dict[str, str] | None = None, uid: int | None = None, proc_comm: str | None = None
-) -> ShellInfo:
-    env = env or dict(os.environ)
-    uid = os.getuid() if uid is None else uid
-    candidates: list[tuple[str, str]] = []
-    if proc_comm:
-        candidates.append((proc_comm.lstrip("-"), "process"))
-    shell_env = env.get("SHELL")
+@dataclass(frozen=True, slots=True)
+class ProcessShell:
+    name: str
+    interactive: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PathUpdate:
+    path: Path
+    changed: bool
+    current_session_has_path: bool
+
+    @property
+    def new_session_required(self) -> bool:
+        return self.changed and not self.current_session_has_path
+
+
+def _process_shell(pid: int) -> ProcessShell | None:
     try:
-        login = pwd.getpwuid(uid).pw_shell
-    except KeyError:
-        login = ""
-    if login:
-        candidates.append((login, "login"))
-    if shell_env:
-        candidates.append((shell_env, "environment"))
+        comm = Path(f"/proc/{pid}/comm").read_text(encoding="utf-8").strip().lstrip("-")
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        args = [part.decode(errors="replace") for part in raw if part]
+    except OSError:
+        return None
+    name = Path(comm).name
+    if name not in SUPPORTED_SHELLS:
+        return None
+    noninteractive = any(
+        arg == "-c" or (arg.startswith("-") and "c" in arg[1:]) for arg in args[1:]
+    )
+    explicitly_interactive = any(
+        arg == "-i" or (arg.startswith("-") and "i" in arg[1:]) for arg in args[1:]
+    )
+    try:
+        fd = os.open(f"/proc/{pid}/fd/0", os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        has_tty = False
+    else:
+        try:
+            has_tty = os.isatty(fd)
+        finally:
+            os.close(fd)
+    return ProcessShell(name, explicitly_interactive or (not noninteractive and has_tty))
+
+
+def _parent_pid(pid: int) -> int | None:
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+        value = next(
+            line.split(":", 1)[1].strip()
+            for line in status.splitlines()
+            if line.startswith("PPid:")
+        )
+        parent = int(value)
+    except (OSError, StopIteration, ValueError):
+        return None
+    return parent or None
+
+
+def process_ancestry(start_pid: int | None = None) -> tuple[ProcessShell, ...]:
+    pid: int | None = os.getppid() if start_pid is None else start_pid
+    result: list[ProcessShell] = []
+    visited: set[int] = set()
+    while pid and pid not in visited and len(visited) < 64:
+        visited.add(pid)
+        candidate = _process_shell(pid)
+        if candidate:
+            result.append(candidate)
+        pid = _parent_pid(pid)
+    return tuple(result)
+
+
+def detect_shell(
+    *,
+    env: Mapping[str, str] | None = None,
+    uid: int | None = None,
+    ancestry: tuple[ProcessShell, ...] | None = None,
+    login_shell: str | None = None,
+) -> ShellInfo:
+    environment = dict(os.environ if env is None else env)
+    target_uid = os.getuid() if uid is None else uid
+    processes = process_ancestry() if ancestry is None else ancestry
+    for process in processes:
+        if process.interactive and process.name in SUPPORTED_SHELLS:
+            return ShellInfo(process.name, Path("/usr/bin") / process.name, "interactive process")
+    if login_shell is None:
+        try:
+            login_shell = pwd.getpwuid(target_uid).pw_shell
+        except KeyError:
+            login_shell = ""
+    candidates = ((login_shell, "login account"), (environment.get("SHELL", ""), "environment"))
     for candidate, source in candidates:
         path = Path(candidate)
-        name = path.name
-        if name in {"fish", "bash", "zsh"}:
-            return ShellInfo(name, path if path.is_absolute() else Path("/usr/bin") / name, source)
+        if path.name in SUPPORTED_SHELLS:
+            executable = path if path.is_absolute() else Path("/usr/bin") / path.name
+            return ShellInfo(path.name, executable, source)
+    for process in processes:
+        if process.name in SUPPORTED_SHELLS:
+            return ShellInfo(process.name, Path("/usr/bin") / process.name, "process fallback")
     raise ValueError("supported interactive shell not detected (fish, bash, or zsh required)")
 
 
-def configure_path(home: Path, shell: ShellInfo, *, dry_run: bool = False) -> tuple[Path, bool]:
+def startup_path(home: Path, shell: ShellInfo) -> Path:
     if shell.name == "fish":
-        path = home / ".config/fish/conf.d/omfg.fish"
-        line = "fish_add_path --global --move $HOME/.local/bin\n"
-    elif shell.name == "zsh":
-        path = home / ".zprofile"
-        line = 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac\n'
-    else:
-        path = home / ".bash_profile"
-        line = 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac\n'
+        return home / ".config/fish/conf.d/omfg.fish"
+    if shell.name == "zsh":
+        return home / ".zshrc"
+    return home / ".bashrc"
+
+
+def _path_line(shell: ShellInfo) -> str:
+    if shell.name == "fish":
+        return "fish_add_path --global --move $HOME/.local/bin"
+    return 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'
+
+
+def current_path_contains(home: Path, env: Mapping[str, str] | None = None) -> bool:
+    environment = os.environ if env is None else env
+    expected = str(home / ".local/bin")
+    return expected in environment.get("PATH", "").split(":")
+
+
+def configure_path(
+    home: Path,
+    shell: ShellInfo,
+    *,
+    dry_run: bool = False,
+    env: Mapping[str, str] | None = None,
+    writer: Callable[[Path, str, int], None] = atomic_write,
+) -> PathUpdate:
+    path = startup_path(home, shell)
+    line = _path_line(shell)
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if line.strip() in existing:
-        return path, False
+    current = current_path_contains(home, env)
+    if line in existing.splitlines():
+        return PathUpdate(path, False, current)
     content = existing
     if content and not content.endswith("\n"):
         content += "\n"
-    content += "\n# Added by omfg\n" + line
+    content += "\n# Added by omfg\n" + line + "\n"
     if not dry_run:
-        atomic_write(path, content, 0o644)
-    return path, True
+        writer(path, content, 0o644)
+    return PathUpdate(path, True, current)
 
 
 def path_configured(home: Path, shell: ShellInfo) -> bool:
-    path, _ = configure_path(home, shell, dry_run=True)
+    path = startup_path(home, shell)
     if not path.is_file():
         return False
-    text = path.read_text(encoding="utf-8")
-    if shell.name == "fish":
-        return "fish_add_path --global --move $HOME/.local/bin" in text.splitlines()
-    return "$HOME/.local/bin:$PATH" in text
+    return _path_line(shell) in path.read_text(encoding="utf-8").splitlines()

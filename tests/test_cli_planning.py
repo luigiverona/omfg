@@ -34,7 +34,7 @@ class CliPlanningTests(unittest.TestCase):
         self.assertNotIn(Capability.CODEX, plan.prerequisites)
         self.assertEqual(
             {package.identifier for package in plan.packages},
-            {"github-cli"},
+            {"git", "github-cli", "openssh"},
         )
 
     def test_codex_includes_only_runtime_and_official_artifact(self) -> None:

@@ -74,3 +74,12 @@ class RunOptions:
     verbose: bool = False
     keep_temp: bool = False
     home: Path = field(default_factory=Path.home)
+
+
+@dataclass(slots=True)
+class ExecutionSummary:
+    requirements: int = 0
+    pending_before: int = 0
+    installed: int = 0
+    components_configured: int = 0
+    existing_keys_preserved: int = 0

@@ -40,9 +40,12 @@ class AurManager:
         )
         if origin.stdout.strip() != f"{self.AUR_BASE}/yay-bin.git" and not self.runner.dry_run:
             raise ValidationError("aur", "validate yay", "unexpected AUR repository origin")
-        self.runner.run(
-            Command(("makepkg", "--syncdeps", "--cleanbuild", "--noconfirm"), cwd=clone)
-        )
+        metadata = self.runner.run(Command(("makepkg", "--printsrcinfo"), cwd=clone, mutate=False))
+        if not self.runner.dry_run and not (
+            "pkgbase = yay-bin" in metadata.stdout and "pkgname = yay-bin" in metadata.stdout
+        ):
+            raise ValidationError("aur", "validate yay", "unexpected AUR package metadata")
+        self.runner.run(Command(("makepkg", "--cleanbuild", "--noconfirm"), cwd=clone))
         package_list = self.runner.run(
             Command(("makepkg", "--packagelist"), cwd=clone, mutate=False)
         )

@@ -65,7 +65,7 @@ def build_plan(selection: Selection, catalog: Catalog) -> Plan:
             if Capability.GIT in resolved:
                 required_ids.add("git")
             if Capability.GITHUB in resolved:
-                required_ids.add("github-cli")
+                required_ids.update({"git", "github-cli", "openssh"})
             if Capability.SSH in resolved:
                 required_ids.add("openssh")
             if Capability.CODEX in resolved:

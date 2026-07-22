@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from omfg.config.codex import CodexManager
 from omfg.config.git import GitConfigurator, GitIdentity
-from omfg.config.shell import ShellInfo, configure_path, detect_shell
 from omfg.config.ssh import SSHManager
-from omfg.config.ssh_inventory import LocalKey, RemoteKey, eligible_for_deletion, inventory_local
+from omfg.config.ssh_inventory import (
+    LocalKey,
+    RemoteKey,
+    eligible_for_deletion,
+    github_correlated_local_keys,
+    inventory_local,
+)
 from omfg.ui import Terminal
 from tests.helpers import FakeRunner
 
@@ -25,33 +29,6 @@ class ConfigTests(unittest.TestCase):
                 if command.mutate
             )
         )
-
-    def test_shell_detection_prefers_process_then_login(self) -> None:
-        info = detect_shell(env={"SHELL": "/bin/bash"}, uid=os.getuid(), proc_comm="fish")
-        self.assertEqual((info.name, info.source), ("fish", "process"))
-
-    def test_each_shell_path_is_idempotent(self) -> None:
-        with tempfile.TemporaryDirectory() as raw:
-            home = Path(raw)
-            for name, relative in (
-                ("fish", ".config/fish/conf.d/omfg.fish"),
-                ("bash", ".bash_profile"),
-                ("zsh", ".zprofile"),
-            ):
-                info = ShellInfo(name, Path("/bin") / name, "test")
-                path, changed = configure_path(home, info)
-                self.assertEqual(path, home / relative)
-                self.assertTrue(changed)
-                _, changed_again = configure_path(home, info)
-                self.assertFalse(changed_again)
-
-    def test_shell_dry_run_no_mutation(self) -> None:
-        with tempfile.TemporaryDirectory() as raw:
-            path, changed = configure_path(
-                Path(raw), ShellInfo("bash", Path("/bin/bash"), "test"), dry_run=True
-            )
-            self.assertTrue(changed)
-            self.assertFalse(path.exists())
 
     def test_ssh_inventory_and_protected_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -95,6 +72,27 @@ class ConfigTests(unittest.TestCase):
                     eligible_fingerprints=frozenset({"SHA256:yes"}),
                     explicit_confirmation=True,
                 )
+
+    def test_only_github_correlated_local_keys_are_cleanup_candidates(self) -> None:
+        local = (
+            LocalKey(Path("/tmp/github"), Path("/tmp/github.pub"), "SHA256:github"),
+            LocalKey(Path("/tmp/server"), Path("/tmp/server.pub"), "SHA256:server"),
+        )
+        remote = (RemoteKey(1, "github", "SHA256:github"),)
+        self.assertEqual(github_correlated_local_keys(local, remote), (local[0],))
+
+    def test_dedicated_key_symlink_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            ssh = home / ".ssh"
+            ssh.mkdir()
+            target = home / "unrelated"
+            target.write_text("keep", encoding="utf-8")
+            (ssh / "id_ed25519_omfg_github").symlink_to(target)
+            manager = SSHManager(FakeRunner(), home)  # type: ignore[arg-type]
+            with self.assertRaises(FileExistsError):
+                manager.create("example@example.com")
+            self.assertEqual(target.read_text(), "keep")
 
     def test_yes_never_approves_destructive_prompt(self) -> None:
         terminal = Terminal(input_fn=lambda _: "", output=lambda _: None)

@@ -38,6 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: pacman -Syu --noconfirm python git shellcheck
+      - run: useradd --create-home omfg-ci
       - run: python -m compileall src tests
-      - run: python -m unittest discover
+      - run: su omfg-ci -c "cd '$GITHUB_WORKSPACE' && PYTHONPATH=src python -m unittest discover"
       - run: bash -n bootstrap/install

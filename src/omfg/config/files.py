@@ -6,6 +6,10 @@ from pathlib import Path
 
 
 def atomic_write(path: Path, content: str, mode: int = 0o600) -> None:
+    if path.is_symlink():
+        raise OSError(f"refusing to replace symbolic link: {path}")
+    if path.parent.is_symlink():
+        raise OSError(f"refusing to write through symbolic directory: {path.parent}")
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temp = Path(raw)
