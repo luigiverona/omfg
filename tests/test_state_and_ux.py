@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from omfg.catalog import load_catalog
 from omfg.config.codex import CodexManager
@@ -11,6 +12,7 @@ from omfg.execution import CommandResult
 from omfg.models import Capability, Package, Plan, RunOptions, Source
 from omfg.planning import StateInspector
 from omfg.ui import Terminal
+from omfg.verification.checks import CheckResult
 from omfg.workflow import Workflow
 from tests.helpers import FakeRunner
 
@@ -131,7 +133,11 @@ class StateAndUxTests(unittest.TestCase):
                 runner=runner,  # type: ignore[arg-type]
                 target_shell=fish,
             )
-            workflow._verify()
+            with patch(
+                "omfg.workflow.Verifier.system",
+                return_value=CheckResult("supported system", True),
+            ):
+                workflow._verify()
             self.assertIn("All checks passed", output)
 
     def test_dry_run_distinguishes_requirements_and_pending_installations(self) -> None:

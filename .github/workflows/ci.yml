@@ -10,11 +10,12 @@ jobs:
   python:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.11", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --disable-pip-version-check -e . ruff mypy
@@ -23,11 +24,12 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy src
+      - run: git diff --check
 
   shell:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: bash -n bootstrap/install
       - run: shellcheck bootstrap/install
@@ -36,9 +38,17 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     steps:
-      - uses: actions/checkout@v4
-      - run: pacman -Syu --noconfirm python git shellcheck
+      - uses: actions/checkout@v7
+      - run: pacman -Syu --noconfirm python git shellcheck sudo curl flatpak
       - run: useradd --create-home omfg-ci
       - run: python -m compileall src tests
       - run: su omfg-ci -c "cd '$GITHUB_WORKSPACE' && PYTHONPATH=src python -m unittest discover"
       - run: bash -n bootstrap/install
+      - run: su omfg-ci -c "python -m venv /tmp/omfg-ci-venv"
+      - run: su omfg-ci -c "cd '$GITHUB_WORKSPACE' && /tmp/omfg-ci-venv/bin/python -m pip install --disable-pip-version-check --no-deps ."
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --help"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --version"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --dry-run"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --app browser --dry-run"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --github --dry-run"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --codex --dry-run"
