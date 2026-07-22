@@ -7,13 +7,18 @@ import hashlib
 import os
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import tomllib
 from pathlib import Path, PurePosixPath
 
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.build_installer import build_installer, validate_template
+
 VERSION_PATTERN = re.compile(r'^__version__\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
-INSTALLER_VERSION_PATTERN = re.compile(r'^readonly OMFG_VERSION="([^"]+)"$', re.MULTILINE)
 REQUIRED_FILES = {"LICENSE", "README.md", "pyproject.toml"}
 
 
@@ -25,17 +30,49 @@ def project_version(root: Path) -> str:
     source_match = VERSION_PATTERN.search(
         (root / "src/omfg/__init__.py").read_text(encoding="utf-8")
     )
-    installer_match = INSTALLER_VERSION_PATTERN.search(
-        (root / "bootstrap/install").read_text(encoding="utf-8")
-    )
     versions = {
         "pyproject.toml": version,
         "src/omfg/__init__.py": source_match.group(1) if source_match else "missing",
-        "bootstrap/install": installer_match.group(1) if installer_match else "missing",
     }
     if len(set(versions.values())) != 1:
         detail = ", ".join(f"{path}={value}" for path, value in versions.items())
         raise ValueError(f"version declarations disagree: {detail}")
+    return version
+
+
+def validate_release_notes(root: Path, version: str) -> None:
+    path = root / "docs/releases" / f"v{version}.md"
+    if not path.is_file() or path.is_symlink():
+        raise ValueError(f"release notes are missing: docs/releases/v{version}.md")
+    content = path.read_text(encoding="utf-8")
+    if not content.strip():
+        raise ValueError(f"release notes are empty: docs/releases/v{version}.md")
+    expected_heading = f"# Omfg {version}"
+    headings = re.findall(r"(?m)^# .+$", content)
+    if headings != [expected_heading]:
+        raise ValueError(f"release notes heading must be exactly: {expected_heading}")
+
+
+def validate_workflow_versions(root: Path, version: str) -> None:
+    expected = {
+        ".github/workflows/ci.yml": f"python tools/build_release.py --tag v{version} --check-only",
+        ".github/workflows/release.yml": f"default: v{version}",
+        ".github/workflows/pages.yml": f"default: v{version}",
+        ".github/workflows/bootstrap-test.yml": f"default: v{version}",
+    }
+    for name, declaration in expected.items():
+        content = (root / name).read_text(encoding="utf-8")
+        if content.count(declaration) != 1:
+            raise ValueError(f"workflow version declaration differs: {name}")
+
+
+def validate_release_contract(root: Path, tag: str) -> str:
+    version = project_version(root)
+    if tag != f"v{version}":
+        raise ValueError(f"release tag must be v{version}, got {tag}")
+    validate_template((root / "bootstrap/install.in").read_text(encoding="utf-8"))
+    validate_release_notes(root, version)
+    validate_workflow_versions(root, version)
     return version
 
 
@@ -138,10 +175,7 @@ def atomic_text(path: Path, content: str) -> None:
 
 
 def build(root: Path, output: Path, tag: str, *, allow_dirty: bool = False) -> tuple[Path, str]:
-    version = project_version(root)
-    expected_tag = f"v{version}"
-    if tag != expected_tag:
-        raise ValueError(f"release tag must be {expected_tag}, got {tag}")
+    version = validate_release_contract(root, tag)
     if not allow_dirty:
         ensure_clean(root)
     epoch = commit_epoch(root)
@@ -149,6 +183,11 @@ def build(root: Path, output: Path, tag: str, *, allow_dirty: bool = False) -> t
     archive_root = f"omfg-{version}"
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"{archive_root}.tar.gz"
+    installer = output / "install"
+    expected_outputs = {archive.name, f"{archive.name}.sha256", "SHA256SUMS", installer.name}
+    unexpected = {path.name for path in output.iterdir() if path.name not in expected_outputs}
+    if unexpected:
+        raise ValueError(f"release output contains unexpected files: {sorted(unexpected)}")
     tar_descriptor, tar_raw = tempfile.mkstemp(prefix=".omfg-release.", dir=output)
     os.close(tar_descriptor)
     tar_path = Path(tar_raw)
@@ -191,9 +230,16 @@ def build(root: Path, output: Path, tag: str, *, allow_dirty: bool = False) -> t
         tar_path.unlink(missing_ok=True)
         gzip_path.unlink(missing_ok=True)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    checksum_line = f"{digest}  {archive.name}\n"
-    atomic_text(output / f"{archive.name}.sha256", checksum_line)
-    atomic_text(output / "SHA256SUMS", checksum_line)
+    archive_line = f"{digest}  {archive.name}\n"
+    atomic_text(output / f"{archive.name}.sha256", archive_line)
+    installer_digest = build_installer(root / "bootstrap/install.in", version, archive, installer)
+    sums = archive_line + f"{installer_digest}  install\n"
+    atomic_text(output / "SHA256SUMS", sums)
+    observed = {path.name for path in output.iterdir() if path.is_file()}
+    if observed != expected_outputs:
+        raise ValueError(
+            f"release output differs; expected={sorted(expected_outputs)}, got={sorted(observed)}"
+        )
     return archive, digest
 
 
@@ -210,14 +256,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     root = args.source.resolve()
-    version = project_version(root)
-    if args.tag != f"v{version}":
-        raise SystemExit(f"release tag must be v{version}, got {args.tag}")
-    if args.check_only:
-        print(f"release contract valid for v{version}")
-        return 0
-    output = (args.output or root / "dist").resolve()
     try:
+        version = validate_release_contract(root, args.tag)
+        if args.check_only:
+            print(f"release contract valid for v{version}")
+            return 0
+        output = (args.output or root / "dist").resolve()
         archive, digest = build(root, output, args.tag, allow_dirty=args.allow_dirty)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         raise SystemExit(f"release build failed: {exc}") from exc

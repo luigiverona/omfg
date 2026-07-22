@@ -2,22 +2,22 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly TAG="${OMFG_TEST_TAG:-v0.1.0}"
+readonly TAG="${OMFG_TEST_TAG:-v0.1.2}"
 readonly VERSION="${TAG#v}"
 readonly PAGES_BASE="${OMFG_TEST_PAGES_BASE:-https://luigiverona.github.io/omfg}"
 readonly RELEASE_BASE="${PAGES_BASE}/releases"
-readonly EXPECTED_SHA256="${OMFG_TEST_SHA256:?OMFG_TEST_SHA256 is required}"
 readonly INSTALLER="/tmp/omfg-bootstrap-test-install"
+readonly TAMPERED_INSTALLER="/tmp/omfg-bootstrap-test-install-tampered"
 readonly ARCHIVE="/tmp/omfg-bootstrap-test-${VERSION}.tar.gz"
 
 [[ ${EUID} -eq 0 ]] || { printf 'bootstrap test must prepare its container as root\n' >&2; exit 1; }
 [[ ${VERSION} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { printf 'invalid test tag\n' >&2; exit 1; }
-[[ ${EXPECTED_SHA256} =~ ^[0-9a-f]{64}$ ]] || { printf 'invalid expected SHA-256\n' >&2; exit 1; }
-
 curl -fsSL --proto '=https' "${PAGES_BASE}/install" -o "${INSTALLER}"
 curl -fsSL --proto '=https' "${RELEASE_BASE}/${TAG}/omfg-${VERSION}.tar.gz" -o "${ARCHIVE}"
-cmp "${INSTALLER}" bootstrap/install
-printf '%s  %s\n' "${EXPECTED_SHA256}" "${ARCHIVE}" | sha256sum -c -
+expected_sha256="$(sed -n 's/^readonly EXPECTED_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' "${INSTALLER}")"
+[[ ${expected_sha256} =~ ^[0-9a-f]{64}$ ]] || { printf 'invalid embedded SHA-256\n' >&2; exit 1; }
+printf '%s  %s\n' "${expected_sha256}" "${ARCHIVE}" | sha256sum -c -
+! grep -Fq '.sha256' "${INSTALLER}"
 bash -n "${INSTALLER}"
 shellcheck "${INSTALLER}"
 
@@ -51,13 +51,13 @@ install_twice() {
   local output
 
   output="$(runuser -u "${user}" -- env HOME="${home}" \
-    OMFG_RELEASE_BASE="${RELEASE_BASE}" OMFG_RELEASE_SHA256="${EXPECTED_SHA256}" \
+    OMFG_RELEASE_BASE="${RELEASE_BASE}" \
     bash "${INSTALLER}")"
   grep -Fq "Omfg ${VERSION} installed" <<<"${output}"
   grep -Fq 'A new shell session is required.' <<<"${output}"
   grep -Fq 'Run omfg when you are ready.' <<<"${output}"
   runuser -u "${user}" -- env HOME="${home}" \
-    OMFG_RELEASE_BASE="${RELEASE_BASE}" OMFG_RELEASE_SHA256="${EXPECTED_SHA256}" \
+    OMFG_RELEASE_BASE="${RELEASE_BASE}" \
     bash "${INSTALLER}" >/dev/null
   assert_common_install "${user}"
 }
@@ -96,9 +96,9 @@ install_twice omfg-zsh
 assert_unmodified_shell_file /home/omfg-zsh/.config/fish/conf.d/omfg.fish
 assert_unmodified_shell_file /home/omfg-zsh/.bashrc
 
+sed "s/${expected_sha256}/$(printf '0%.0s' {1..64})/" "${INSTALLER}" >"${TAMPERED_INSTALLER}"
 if runuser -u omfg-bad-checksum -- env HOME=/home/omfg-bad-checksum \
-  OMFG_RELEASE_BASE="${RELEASE_BASE}" OMFG_RELEASE_SHA256="$(printf '0%.0s' {1..64})" \
-  bash "${INSTALLER}"; then
+  OMFG_RELEASE_BASE="${RELEASE_BASE}" bash "${TAMPERED_INSTALLER}"; then
   printf 'installer accepted an incorrect pinned checksum\n' >&2
   exit 1
 fi

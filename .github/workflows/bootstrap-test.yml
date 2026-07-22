@@ -6,10 +6,7 @@ on:
       tag:
         description: Existing immutable release to test
         required: true
-        default: v0.1.0
-      sha256:
-        description: Expected runtime archive SHA-256
-        required: true
+        default: v0.1.2
 
 permissions:
   contents: read
@@ -30,5 +27,4 @@ jobs:
       - name: Test deployed bootstrap as unprivileged users
         env:
           OMFG_TEST_TAG: ${{ inputs.tag }}
-          OMFG_TEST_SHA256: ${{ inputs.sha256 }}
         run: bash tools/test_bootstrap_arch.sh

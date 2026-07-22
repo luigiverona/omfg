@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import re
 import struct
@@ -13,7 +12,16 @@ import tempfile
 import tomllib
 from pathlib import Path, PurePosixPath
 
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.build_installer import file_digest, validate_installer
+
 CHECKSUM_PATTERN = re.compile(r"^([0-9a-f]{64})  (omfg-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz)\n$")
+SUMS_PATTERN = re.compile(
+    r"^([0-9a-f]{64})  (omfg-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz)\n"
+    r"([0-9a-f]{64})  install\n$"
+)
 VERSION_PATTERN = re.compile(r'^__version__\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
 
 
@@ -87,12 +95,22 @@ def validate_gzip_header(archive: Path, epoch: int) -> None:
         raise ValueError("gzip compression or operating-system metadata is not normalized")
 
 
-def file_digest(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
+def validate_sums(path: Path, archive: Path, archive_digest: str, installer: Path) -> None:
+    match = SUMS_PATTERN.fullmatch(path.read_text(encoding="ascii"))
+    if not match:
+        raise ValueError("SHA256SUMS must contain exactly the archive and installer")
+    if match.group(1) != archive_digest or match.group(2) != archive.name:
+        raise ValueError("SHA256SUMS archive entry differs")
+    if match.group(3) != file_digest(installer):
+        raise ValueError("SHA256SUMS installer entry differs")
+
+
+def validate_installer_asset(installer: Path, version: str, archive_digest: str) -> str:
+    if installer.name != "install" or installer.is_symlink() or not installer.is_file():
+        raise ValueError("installer asset must be a regular file named install")
+    content = installer.read_text(encoding="utf-8")
+    validate_installer(content, version, archive_digest)
+    return file_digest(installer)
 
 
 def validate_archive(
@@ -100,6 +118,7 @@ def validate_archive(
     archive: Path,
     checksum: Path,
     sums: Path,
+    installer: Path,
     *,
     run_runtime: bool = True,
 ) -> str:
@@ -110,7 +129,8 @@ def validate_archive(
         raise ValueError(f"archive must be named {expected_name}")
     digest = file_digest(archive)
     validate_checksum(checksum, archive, digest)
-    validate_checksum(sums, archive, digest)
+    validate_installer_asset(installer, version, digest)
+    validate_sums(sums, archive, digest, installer)
     epoch = commit_epoch(root)
     validate_gzip_header(archive, epoch)
     files = expected_files(root)
@@ -220,6 +240,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--checksum", type=Path)
     parser.add_argument("--sums", type=Path)
+    parser.add_argument("--installer", type=Path)
     parser.add_argument("--skip-runtime", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
@@ -229,12 +250,14 @@ def main() -> int:
     archive = args.archive.resolve()
     checksum = (args.checksum or Path(f"{archive}.sha256")).resolve()
     sums = (args.sums or archive.parent / "SHA256SUMS").resolve()
+    installer = (args.installer or archive.parent / "install").resolve()
     try:
         digest = validate_archive(
             args.project_root.resolve(),
             archive,
             checksum,
             sums,
+            installer,
             run_runtime=not args.skip_runtime,
         )
     except (OSError, ValueError, subprocess.CalledProcessError, tarfile.TarError) as exc:

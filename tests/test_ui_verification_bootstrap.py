@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import io
 import os
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -13,6 +13,7 @@ from unittest.mock import patch
 from omfg.ui import Terminal
 from omfg.verification.checks import Verifier
 from tests.helpers import FakeRunner
+from tools.build_installer import build_installer
 
 
 class UiVerificationBootstrapTests(unittest.TestCase):
@@ -63,59 +64,66 @@ class UiVerificationBootstrapTests(unittest.TestCase):
 
     def test_bootstrap_syntax(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        result = subprocess.run(("bash", "-n", str(root / "bootstrap/install")), check=False)
+        result = subprocess.run(("bash", "-n", str(root / "bootstrap/install.in")), check=False)
         self.assertEqual(result.returncode, 0)
 
     def test_bootstrap_does_not_execute_omfg(self) -> None:
-        text = (Path(__file__).resolve().parents[1] / "bootstrap/install").read_text()
+        text = (Path(__file__).resolve().parents[1] / "bootstrap/install.in").read_text()
         self.assertIn("Run omfg when you are ready", text)
         self.assertNotIn("exec omfg", text)
 
     def _bootstrap_fixture(
         self, root: Path, *, unsafe_link: bool = False
-    ) -> tuple[Path, dict[str, str]]:
+    ) -> tuple[Path, Path, dict[str, str]]:
         archive = root / "release.tar.gz"
         with tarfile.open(archive, "w:gz") as bundle:
             for directory in (
-                "omfg-0.1.0",
-                "omfg-0.1.0/apps",
-                "omfg-0.1.0/deps",
-                "omfg-0.1.0/src",
-                "omfg-0.1.0/src/omfg",
+                "omfg-0.1.2",
+                "omfg-0.1.2/apps",
+                "omfg-0.1.2/deps",
+                "omfg-0.1.2/src",
+                "omfg-0.1.2/src/omfg",
             ):
                 info = tarfile.TarInfo(directory)
                 info.type = tarfile.DIRTYPE
                 bundle.addfile(info)
             for name, content in (
-                ("omfg-0.1.0/pyproject.toml", b"[project]\nname='omfg'\n"),
-                ("omfg-0.1.0/src/omfg/__init__.py", b""),
+                ("omfg-0.1.2/pyproject.toml", b"[project]\nname='omfg'\n"),
+                ("omfg-0.1.2/src/omfg/__init__.py", b""),
                 (
-                    "omfg-0.1.0/src/omfg/__main__.py",
+                    "omfg-0.1.2/src/omfg/__main__.py",
                     b"from omfg.cli import main\nraise SystemExit(main())\n",
                 ),
                 (
-                    "omfg-0.1.0/src/omfg/cli.py",
-                    b"def main():\n print('Omfg 0.1.0')\n return 0\n",
+                    "omfg-0.1.2/src/omfg/cli.py",
+                    b"def main():\n print('Omfg 0.1.2')\n return 0\n",
                 ),
             ):
                 info = tarfile.TarInfo(name)
                 info.size = len(content)
                 bundle.addfile(info, io.BytesIO(content))
             if unsafe_link:
-                link = tarfile.TarInfo("omfg-0.1.0/escape")
+                link = tarfile.TarInfo("omfg-0.1.2/escape")
                 link.type = tarfile.SYMTYPE
                 link.linkname = "/tmp/escape"
                 bundle.addfile(link)
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        checksum = root / "release.tar.gz.sha256"
-        checksum.write_text(f"{digest}  release.tar.gz\n", encoding="utf-8")
+        named_archive = root / "omfg-0.1.2.tar.gz"
+        archive.rename(named_archive)
+        archive = named_archive
+        installer = root / "install"
+        build_installer(
+            Path(__file__).resolve().parents[1] / "bootstrap/install.in",
+            "0.1.2",
+            archive,
+            installer,
+        )
         fake_bin = root / "bin"
         fake_bin.mkdir()
         scripts = {
-            "getent": '#!/bin/sh\nprintf \'%s:x:1000:1000:test:%s:/usr/bin/fish\\n\' "$2" "$HOME"\n',
-            "ps": "#!/bin/sh\ncase \" $* \" in *' comm='*) echo fish;; *' args='*) echo fish;; *' tty='*) echo pts/1;; *' ppid='*) echo 0;; esac\n",
+            "getent": '#!/bin/sh\nprintf \'%s:x:1000:1000:test:%s:%s\\n\' "$2" "$HOME" "$FAKE_LOGIN_SHELL"\n',
+            "ps": "#!/bin/sh\ncase \" $* \" in *' comm='*) echo \"$FAKE_PROCESS_SHELL\";; *' args='*) echo \"$FAKE_PROCESS_SHELL\";; *' tty='*) echo pts/1;; *' ppid='*) echo 0;; esac\n",
             "pacman": "#!/bin/sh\nexit 0\n",
-            "curl": '#!/bin/sh\nout=\'\'\nfor arg in "$@"; do if [ "$previous" = -o ]; then out=$arg; fi; previous=$arg; done\ncase "$out" in *.sha256) cp "$FIXTURE_CHECKSUM" "$out";; *) cp "$FIXTURE_ARCHIVE" "$out";; esac\n',
+            "curl": '#!/bin/sh\nout=\'\'\nurl=\'\'\nprevious=\'\'\nfor arg in "$@"; do if [ "$previous" = -o ]; then out=$arg; fi; previous=$arg; url=$arg; done\nprintf \'%s\\n\' "$url" >>"$CURL_LOG"\ncase "$url" in *.sha256) exit 97;; *) cp "$FIXTURE_ARCHIVE" "$out";; esac\n',
         }
         for name, text in scripts.items():
             path = fake_bin / name
@@ -129,18 +137,28 @@ class UiVerificationBootstrapTests(unittest.TestCase):
                 "SHELL": "/bin/bash",
                 "PATH": f"{fake_bin}:{env['PATH']}",
                 "FIXTURE_ARCHIVE": str(archive),
-                "FIXTURE_CHECKSUM": str(checksum),
+                "FAKE_LOGIN_SHELL": "/usr/bin/fish",
+                "FAKE_PROCESS_SHELL": "fish",
+                "CURL_LOG": str(root / "curl.log"),
             }
         )
         Path(env["HOME"]).mkdir()
-        return archive, env
+        return archive, installer, env
+
+    def _assert_fixture_cli(self, env: dict[str, str]) -> None:
+        launcher = Path(env["HOME"]) / ".local/bin/omfg"
+        for argument in ("--version", "--help", "--dry-run"):
+            result = subprocess.run(
+                (str(launcher), argument), env=env, text=True, capture_output=True
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Omfg 0.1.2", result.stdout)
 
     def test_bootstrap_fish_detection_atomic_install_and_idempotent_path(self) -> None:
         self._require_arch_nonroot()
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            _, env = self._bootstrap_fixture(root)
-            installer = Path(__file__).resolve().parents[1] / "bootstrap/install"
+            _, installer, env = self._bootstrap_fixture(root)
             first = subprocess.run(
                 ("bash", str(installer)), env=env, text=True, capture_output=True
             )
@@ -156,16 +174,74 @@ class UiVerificationBootstrapTests(unittest.TestCase):
             fish = home / ".config/fish/conf.d/omfg.fish"
             self.assertEqual(fish.read_text().count("fish_add_path"), 1)
             self.assertFalse((home / ".bashrc").exists())
+            self.assertNotIn(".sha256", (root / "curl.log").read_text())
+            self.assertNotRegex(installer.read_text(encoding="utf-8"), r"(?m)^\s*sudo\s")
+            self._assert_fixture_cli(env)
+
+    def test_bootstrap_bash_and_zsh_are_shell_specific(self) -> None:
+        self._require_arch_nonroot()
+        for shell in ("bash", "zsh"):
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                _, installer, env = self._bootstrap_fixture(root)
+                env["FAKE_LOGIN_SHELL"] = f"/usr/bin/{shell}"
+                env["FAKE_PROCESS_SHELL"] = shell
+                result = subprocess.run(
+                    ("bash", str(installer)), env=env, text=True, capture_output=True
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                repeated = subprocess.run(
+                    ("bash", str(installer)), env=env, text=True, capture_output=True
+                )
+                self.assertEqual(repeated.returncode, 0, repeated.stderr)
+                home = Path(env["HOME"])
+                selected = home / f".{shell}rc"
+                self.assertEqual(selected.read_text().count("Added by omfg"), 1)
+                other = home / (".zshrc" if shell == "bash" else ".bashrc")
+                self.assertFalse(other.exists())
+                self.assertFalse((home / ".config/fish/conf.d/omfg.fish").exists())
+                self._assert_fixture_cli(env)
 
     def test_bootstrap_rejects_archive_links(self) -> None:
         self._require_arch_nonroot()
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            _, env = self._bootstrap_fixture(root, unsafe_link=True)
-            installer = Path(__file__).resolve().parents[1] / "bootstrap/install"
+            _, installer, env = self._bootstrap_fixture(root, unsafe_link=True)
             result = subprocess.run(
                 ("bash", str(installer)), env=env, text=True, capture_output=True
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("unsafe or invalid", result.stderr)
             self.assertFalse((Path(env["HOME"]) / ".local/share/omfg/current").exists())
+
+    def test_bootstrap_rejects_tampered_archive(self) -> None:
+        self._require_arch_nonroot()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            archive, installer, env = self._bootstrap_fixture(root)
+            with archive.open("ab") as handle:
+                handle.write(b"tampered")
+            result = subprocess.run(
+                ("bash", str(installer)), env=env, text=True, capture_output=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("release checksum mismatch", result.stderr)
+            self.assertFalse((Path(env["HOME"]) / ".local/share/omfg/current").exists())
+
+    def test_bootstrap_rejects_tampered_embedded_hash(self) -> None:
+        self._require_arch_nonroot()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            _, installer, env = self._bootstrap_fixture(root)
+            content = installer.read_text(encoding="utf-8")
+            content = re.sub(
+                r'(?m)^readonly EXPECTED_SHA256="[0-9a-f]{64}"$',
+                'readonly EXPECTED_SHA256="' + "0" * 64 + '"',
+                content,
+            )
+            installer.write_text(content, encoding="utf-8")
+            result = subprocess.run(
+                ("bash", str(installer)), env=env, text=True, capture_output=True
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("release checksum mismatch", result.stderr)

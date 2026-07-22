@@ -19,13 +19,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --disable-pip-version-check -e . ruff mypy
-      - run: python -m compileall src tests
+      - run: python -m compileall src tests tools
       - run: python -m unittest discover
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy src
       - run: mypy tools
-      - run: python tools/build_release.py --tag v0.1.1 --check-only
+      - run: python tools/build_release.py --tag v0.1.2 --check-only
       - run: git diff --check
 
   shell:
@@ -33,8 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - run: bash -n bootstrap/install
-      - run: shellcheck bootstrap/install
+      - run: bash -n bootstrap/install.in
+      - run: shellcheck bootstrap/install.in
 
   arch:
     runs-on: ubuntu-latest
@@ -44,9 +44,9 @@ jobs:
       - uses: actions/checkout@v7
       - run: useradd --create-home omfg-ci
       - run: su omfg-ci -c "cp -R '$GITHUB_WORKSPACE' /tmp/omfg-ci-source"
-      - run: su omfg-ci -c "cd /tmp/omfg-ci-source && python -m compileall src tests"
+      - run: su omfg-ci -c "cd /tmp/omfg-ci-source && python -m compileall src tests tools"
       - run: su omfg-ci -c "cd /tmp/omfg-ci-source && PYTHONPATH=src python -m unittest discover"
-      - run: bash -n bootstrap/install
+      - run: bash -n bootstrap/install.in
       - run: su omfg-ci -c "python -m venv /tmp/omfg-ci-venv"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/python -m pip install --disable-pip-version-check --no-deps /tmp/omfg-ci-source"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --help"

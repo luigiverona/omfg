@@ -2,9 +2,9 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly OMFG_VERSION="0.1.1"
+readonly OMFG_VERSION="@OMFG_VERSION@"
 readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-https://omfg.luigiverona.dev/releases}"
-readonly EXPECTED_SHA256="${OMFG_RELEASE_SHA256:-}"
+readonly EXPECTED_SHA256="@OMFG_ARCHIVE_SHA256@"
 
 die() { printf 'omfg installer: %s\n' "$*" >&2; exit 1; }
 
@@ -74,18 +74,10 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 archive="${tmp_dir}/omfg-${OMFG_VERSION}.tar.gz"
-checksum="${tmp_dir}/omfg-${OMFG_VERSION}.tar.gz.sha256"
 release_url="${RELEASE_BASE}/v${OMFG_VERSION}/omfg-${OMFG_VERSION}.tar.gz"
 
 curl -fL --proto '=https' --tlsv1.2 -o "${archive}" "${release_url}"
-if [[ -n ${EXPECTED_SHA256} ]]; then
-  printf '%s  %s\n' "${EXPECTED_SHA256}" "${archive}" | sha256sum --check --status - || die "release checksum mismatch"
-else
-  curl -fL --proto '=https' --tlsv1.2 -o "${checksum}" "${release_url}.sha256"
-  published="$(awk 'NR == 1 {print $1}' "${checksum}")"
-  [[ ${published} =~ ^[0-9a-fA-F]{64}$ ]] || die "invalid release checksum"
-  printf '%s  %s\n' "${published}" "${archive}" | sha256sum --check --status - || die "release checksum mismatch"
-fi
+printf '%s  %s\n' "${EXPECTED_SHA256}" "${archive}" | sha256sum --check --status - || die "release checksum mismatch"
 
 install_root="${target_home}/.local/share/omfg"
 release_dir="${install_root}/releases/${OMFG_VERSION}"

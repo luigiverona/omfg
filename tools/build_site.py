@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
+
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.build_installer import file_digest, validate_installer
 
 
 def build_site(
@@ -17,7 +22,7 @@ def build_site(
     if tag != f"v{version}":
         raise ValueError(f"site tag must be v{version}")
     archive_name = f"omfg-{version}.tar.gz"
-    expected_assets = {archive_name, f"{archive_name}.sha256", "SHA256SUMS"}
+    expected_assets = {"install", archive_name, f"{archive_name}.sha256", "SHA256SUMS"}
     observed_assets = {path.name for path in assets.iterdir() if path.is_file()}
     if observed_assets != expected_assets:
         raise ValueError(
@@ -41,17 +46,19 @@ def build_site(
         cwd=root,
         check=True,
     )
-    installer = (root / "bootstrap/install").read_bytes()
+    archive_digest = file_digest(assets / archive_name)
+    installer_path = assets / "install"
+    installer = installer_path.read_bytes()
     text = installer.decode("utf-8")
-    if f'readonly OMFG_VERSION="{version}"' not in text:
-        raise ValueError("installer version differs from site version")
-    if not re.search(
-        r'^readonly RELEASE_BASE="\$\{OMFG_RELEASE_BASE:-https://omfg\.luigiverona\.dev/releases\}"$',
-        text,
-        re.MULTILINE,
-    ):
+    validate_installer(text, version, archive_digest)
+    release_base = (
+        'readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-https://omfg.luigiverona.dev/releases}"'
+    )
+    if text.count(release_base) != 1:
         raise ValueError("installer release base is not the intended custom domain")
     if output.exists():
+        if output.is_symlink() or not output.is_dir():
+            raise ValueError("site output must be a real directory")
         shutil.rmtree(output)
     release_dir = output / "releases" / tag
     release_dir.mkdir(parents=True)
