@@ -26,7 +26,7 @@ jobs:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install bootstrap prerequisites
-        run: pacman -Syu --noconfirm curl fish python shellcheck zsh
+        run: pacman -Syu --noconfirm curl fish python shellcheck sudo zsh
       - name: Test deployed bootstrap as unprivileged users
         env:
           OMFG_TEST_TAG: ${{ inputs.tag }}
