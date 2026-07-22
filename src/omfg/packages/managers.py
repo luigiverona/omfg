@@ -4,21 +4,35 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
+from omfg.config.files import atomic_write
 from omfg.errors import ValidationError
 from omfg.execution import Command, CommandRunner
 
 
 class PacmanManager:
-    def __init__(self, runner: CommandRunner) -> None:
+    def __init__(self, runner: CommandRunner, workspace: Path | None = None) -> None:
         self.runner = runner
+        self.workspace = workspace
+
+    def _command(self, argv: tuple[str, ...], packages: tuple[str, ...]) -> Command:
+        log_path = self.workspace / "logs/pacman.log" if self.workspace else None
+        return Command(
+            argv,
+            failure_component="Package installation",
+            failure_operation="install packages",
+            failure_packages=packages,
+            log_path=log_path,
+        )
 
     def full_update(self) -> None:
-        self.runner.run(Command(("sudo", "pacman", "-Syu", "--noconfirm", "--needed")))
+        self.runner.run(self._command(("sudo", "pacman", "-Syu", "--noconfirm", "--needed"), ()))
 
     def install(self, packages: Iterable[str]) -> None:
         names = tuple(sorted(set(packages)))
         if names:
-            self.runner.run(Command(("sudo", "pacman", "-S", "--needed", "--noconfirm", *names)))
+            self.runner.run(
+                self._command(("sudo", "pacman", "-S", "--needed", "--noconfirm", *names), names)
+            )
 
 
 class AurManager:
@@ -28,10 +42,30 @@ class AurManager:
         self.runner = runner
         self.workspace = workspace
 
+    def _makepkg_config(self) -> Path:
+        source = Path("/etc/makepkg.conf")
+        try:
+            content = source.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValidationError("aur", "configure makepkg", str(exc)) from exc
+        content += """
+
+# omfg builds only requested top-level packages; debug packages are not release requirements.
+for _omfg_index in "${!OPTIONS[@]}"; do
+  case "${OPTIONS[_omfg_index]}" in
+    debug|!debug) OPTIONS[_omfg_index]=!debug ;;
+  esac
+done
+"""
+        path = self.workspace / "state/makepkg.conf"
+        atomic_write(path, content, 0o600)
+        return path
+
     def bootstrap_yay(self) -> None:
         if os.geteuid() == 0:
             raise ValidationError("aur", "bootstrap yay", "makepkg must not run as root")
         clone = self.workspace / "aur" / "yay-bin"
+        makepkg_config = self._makepkg_config()
         self.runner.run(
             Command(("git", "clone", "--depth", "1", f"{self.AUR_BASE}/yay-bin.git", str(clone)))
         )
@@ -40,27 +74,61 @@ class AurManager:
         )
         if origin.stdout.strip() != f"{self.AUR_BASE}/yay-bin.git" and not self.runner.dry_run:
             raise ValidationError("aur", "validate yay", "unexpected AUR repository origin")
-        metadata = self.runner.run(Command(("makepkg", "--printsrcinfo"), cwd=clone, mutate=False))
+        metadata = self.runner.run(
+            Command(
+                ("makepkg", "--config", str(makepkg_config), "--printsrcinfo"),
+                cwd=clone,
+                mutate=False,
+            )
+        )
         if not self.runner.dry_run and not (
             "pkgbase = yay-bin" in metadata.stdout and "pkgname = yay-bin" in metadata.stdout
         ):
             raise ValidationError("aur", "validate yay", "unexpected AUR package metadata")
-        self.runner.run(Command(("makepkg", "--cleanbuild", "--noconfirm"), cwd=clone))
-        package_list = self.runner.run(
-            Command(("makepkg", "--packagelist"), cwd=clone, mutate=False)
+        self.runner.run(
+            Command(
+                ("makepkg", "--config", str(makepkg_config), "--cleanbuild", "--noconfirm"),
+                cwd=clone,
+            )
         )
-        artifacts = tuple(line.strip() for line in package_list.stdout.splitlines() if line.strip())
+        package_list = self.runner.run(
+            Command(
+                ("makepkg", "--config", str(makepkg_config), "--packagelist"),
+                cwd=clone,
+                mutate=False,
+            )
+        )
+        candidates = tuple(
+            line.strip() for line in package_list.stdout.splitlines() if line.strip()
+        )
+        artifacts = tuple(
+            artifact
+            for artifact in candidates
+            if Path(artifact).name.startswith("yay-bin-")
+            and not Path(artifact).name.startswith("yay-bin-debug-")
+        )
         if not artifacts and not self.runner.dry_run:
             raise ValidationError("aur", "bootstrap yay", "makepkg did not produce a package")
         if artifacts:
-            self.runner.run(Command(("sudo", "pacman", "-U", "--noconfirm", *artifacts)))
+            self.runner.run(
+                Command(
+                    ("sudo", "pacman", "-U", "--noconfirm", *artifacts),
+                    failure_component="AUR bootstrap",
+                    failure_operation="install yay",
+                    failure_packages=("yay-bin",),
+                    log_path=self.workspace / "logs/aur-bootstrap.log",
+                )
+            )
         verification = self.runner.run(Command(("yay", "--version"), mutate=False), check=False)
         if verification.returncode and not self.runner.dry_run:
             raise ValidationError("aur", "verify yay", "yay is unavailable after installation")
 
     def install(self, packages: Iterable[str]) -> None:
         names = tuple(sorted(set(packages)))
-        if names:
+        if not names:
+            return
+        makepkg_config = self._makepkg_config()
+        for name in names:
             self.runner.run(
                 Command(
                     (
@@ -70,8 +138,14 @@ class AurManager:
                         "--noconfirm",
                         "--builddir",
                         str(self.workspace / "aur"),
-                        *names,
-                    )
+                        "--makepkgconf",
+                        str(makepkg_config),
+                        name,
+                    ),
+                    failure_component="AUR installation",
+                    failure_operation="install packages",
+                    failure_packages=(name,),
+                    log_path=self.workspace / "logs/aur.log",
                 )
             )
 

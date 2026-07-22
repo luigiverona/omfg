@@ -31,6 +31,26 @@ class UiVerificationBootstrapTests(unittest.TestCase):
         self.assertTrue(terminal.confirm("Keep?", default=True))
         self.assertFalse(terminal.confirm("Delete?", default=False))
 
+    def test_package_failure_is_compact_and_actionable(self) -> None:
+        output: list[str] = []
+        Terminal(output=output.append).error(
+            "AUR installation",
+            "install packages",
+            "old and new are in conflict",
+            "/tmp/omfg-test/logs/aur.log",
+            ("mullvad-browser-bin",),
+        )
+        self.assertEqual(
+            output,
+            [
+                "AUR installation failed",
+                "Packages: mullvad-browser-bin",
+                "Reason: old and new are in conflict",
+                "Details: /tmp/omfg-test/logs/aur.log",
+                "Rerun with --verbose for complete output.",
+            ],
+        )
+
     @patch("omfg.verification.checks.platform.machine", return_value="wrong")
     def test_verification_failure(self, _: object) -> None:
         result = Verifier(FakeRunner(), Path.home()).system()  # type: ignore[arg-type]

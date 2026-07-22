@@ -2,7 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly OMFG_VERSION="0.1.0"
+readonly OMFG_VERSION="0.1.1"
 readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-https://omfg.luigiverona.dev/releases}"
 readonly EXPECTED_SHA256="${OMFG_RELEASE_SHA256:-}"
 

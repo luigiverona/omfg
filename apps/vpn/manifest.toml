@@ -1,5 +1,5 @@
 [[package]]
 name = "Mullvad VPN"
-identifier = "mullvad-vpn-bin"
-source = "aur"
+identifier = "mullvad-vpn"
+source = "pacman"
 executable = "mullvad-vpn"

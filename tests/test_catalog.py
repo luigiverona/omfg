@@ -12,6 +12,17 @@ GOOD = '[[package]]\nname="Git"\nidentifier="git"\nsource="pacman"\n'
 
 
 class CatalogTests(unittest.TestCase):
+    def test_mullvad_vpn_prefers_official_package(self) -> None:
+        catalog = load_catalog()
+        vpn = next(package for package in catalog.apps if package.name == "Mullvad VPN")
+        self.assertEqual(
+            (vpn.identifier, vpn.source.value, vpn.executable),
+            ("mullvad-vpn", "pacman", "mullvad-vpn"),
+        )
+        identifiers = {package.identifier for package in (*catalog.apps, *catalog.deps)}
+        self.assertNotIn("mullvad-vpn-bin", identifiers)
+        self.assertNotIn("mullvad-vpn-daemon", identifiers)
+
     def test_load_and_duplicate_top_level(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

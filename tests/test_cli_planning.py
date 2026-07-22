@@ -67,6 +67,15 @@ class CliPlanningTests(unittest.TestCase):
         self.assertIn("librewolf-bin", app_ids)
         self.assertNotIn("mullvad-vpn-bin", app_ids)
 
+    def test_vpn_uses_one_official_requirement(self) -> None:
+        plan = build_plan(self.selection("--app", "vpn"), self.catalog)
+        applications = [package for package in plan.packages if package.category == "vpn"]
+        self.assertEqual(
+            [(package.source, package.identifier) for package in applications],
+            [(Source.PACMAN, "mullvad-vpn")],
+        )
+        self.assertNotIn("mullvad-vpn-daemon", {package.identifier for package in plan.packages})
+
     def test_game_resolves_flatpak_and_flathub(self) -> None:
         plan = build_plan(self.selection("--app", "game"), self.catalog)
         self.assertIn(Capability.FLATPAK, plan.prerequisites)

@@ -10,6 +10,7 @@ class OmfgError(Exception):
     reason: str
     exit_code: int = 1
     log_path: str | None = None
+    packages: tuple[str, ...] = ()
 
     def __str__(self) -> str:
         return f"{self.component}: {self.operation} failed: {self.reason}"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
@@ -17,6 +18,10 @@ class Command:
     env: Mapping[str, str] | None = None
     sensitive_values: tuple[str, ...] = ()
     mutate: bool = True
+    failure_component: str = "command"
+    failure_operation: str = "execute"
+    failure_packages: tuple[str, ...] = ()
+    log_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +33,17 @@ class CommandResult:
 
 
 class CommandRunner:
+    ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+    DIAGNOSTIC_PATTERNS = (
+        " are in conflict",
+        "conflicting files",
+        "conflicting dependencies",
+        "exists in filesystem",
+        "failed to prepare transaction",
+        "failed to commit transaction",
+        "error:",
+    )
+
     def __init__(
         self,
         *,
@@ -46,6 +62,33 @@ class CommandRunner:
             if secret:
                 value = value.replace(secret, "[REDACTED]")
         return value
+
+    @classmethod
+    def diagnostic(cls, stdout: str, stderr: str) -> str:
+        lines = [
+            cls.ANSI_ESCAPE.sub("", line).strip()
+            for line in (*stdout.splitlines(), *stderr.splitlines())
+            if line.strip()
+        ]
+        for pattern in cls.DIAGNOSTIC_PATTERNS:
+            for line in lines:
+                if pattern in line.lower():
+                    return line.removeprefix(":: ")[:500]
+        return lines[-1][:500] if lines else "command exited nonzero"
+
+    def _write_failure_log(self, command: Command, result: CommandResult) -> None:
+        if command.log_path is None:
+            return
+        rendered = self.redact(shlex.join(command.argv), command.sensitive_values)
+        content = (
+            f"Command: {rendered}\n"
+            f"Exit status: {result.returncode}\n\n"
+            f"Standard output:\n{result.stdout}"
+            f"\nStandard error:\n{result.stderr}"
+        )
+        from omfg.config.files import atomic_write
+
+        atomic_write(command.log_path, content, 0o600)
 
     def run(self, command: Command, *, check: bool = True) -> CommandResult:
         if not command.argv or any("\0" in arg for arg in command.argv):
@@ -79,10 +122,13 @@ class CommandRunner:
             if result.stderr:
                 self.output(result.stderr.rstrip())
         if check and result.returncode:
-            reason = (
-                result.stderr.strip().splitlines()[-1]
-                if result.stderr.strip()
-                else "command exited nonzero"
+            self._write_failure_log(command, result)
+            raise CommandError(
+                command.failure_component,
+                command.failure_operation,
+                self.diagnostic(result.stdout, result.stderr),
+                result.returncode,
+                str(command.log_path) if command.log_path else None,
+                command.failure_packages,
             )
-            raise CommandError("command", "execute", reason, result.returncode)
         return result

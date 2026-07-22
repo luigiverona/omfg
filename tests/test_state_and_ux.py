@@ -61,6 +61,14 @@ class StateAndUxTests(unittest.TestCase):
             self.assertNotIn("git", {package.identifier for package in pending})
             self.assertEqual(len(pending), 14)
 
+    def test_rerun_skips_requirements_completed_before_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            completed = {"discord", "mullvad-vpn", "spotify-launcher"}
+            pending = self.inspector(Path(raw), completed).pending(self.packages)
+            pending_ids = {package.identifier for package in pending}
+            self.assertTrue(completed.isdisjoint(pending_ids))
+            self.assertEqual(len(pending), len(self.packages) - len(completed))
+
     def test_git_and_openssh_present_github_cli_missing(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             github_requirements = tuple(
@@ -152,6 +160,22 @@ class StateAndUxTests(unittest.TestCase):
         workflow._render_dry_run(self.packages[:2])
         self.assertIn("Software requirements: 15", output)
         self.assertIn("Pending installations: 2", output)
+
+    def test_vpn_dry_run_groups_official_package_as_system_software(self) -> None:
+        vpn = next(package for package in self.packages if package.identifier == "mullvad-vpn")
+        output: list[str] = []
+        workflow = Workflow(
+            Plan((Capability.APPS,), (), (vpn,), (), ()),
+            RunOptions(dry_run=True, verbose=True),
+            Terminal(output=output.append),
+            runner=FakeRunner(),  # type: ignore[arg-type]
+        )
+        workflow._render_dry_run((vpn,))
+        rendered = "\n".join(output)
+        self.assertIn("Software requirements: 1", rendered)
+        self.assertIn("Pending installations: 1", rendered)
+        self.assertIn("pacman: mullvad-vpn (pending)", rendered)
+        self.assertNotIn("mullvad-vpn-bin", rendered)
 
     def test_normal_summary_uses_source_specific_plain_language(self) -> None:
         output: list[str] = []

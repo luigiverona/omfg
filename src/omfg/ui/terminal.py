@@ -32,8 +32,21 @@ class Terminal:
         return answer in {"y", "yes"}
 
     def error(
-        self, component: str, operation: str, reason: str, log_path: str | None = None
+        self,
+        component: str,
+        operation: str,
+        reason: str,
+        log_path: str | None = None,
+        packages: tuple[str, ...] = (),
     ) -> None:
+        if packages:
+            self.output(f"{component} failed")
+            self.output(f"Packages: {', '.join(packages)}")
+            self.output(f"Reason: {reason}")
+            if log_path:
+                self.output(f"Details: {log_path}")
+            self.output("Rerun with --verbose for complete output.")
+            return
         self.output(f"{component} failed while trying to {operation}: {reason}")
         if log_path:
             self.output(f"Log: {log_path}")

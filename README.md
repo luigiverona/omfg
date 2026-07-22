@@ -2,7 +2,7 @@
 
 `omfg` is a production-minded Arch Linux workstation setup tool. A plain `omfg` run validates the host, asks before changing it, performs a supported full system update, installs the declared software, configures Flatpak/Flathub, Git, GitHub SSH access, two isolated Codex profiles, the active shell path, and then independently verifies the result.
 
-Version 0.1.0 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
+Version 0.1.1 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
 
 ## Installation
 
@@ -76,16 +76,16 @@ Manifests are strict TOML files under `apps/<category>/manifest.toml`; dependenc
 | Game | Sober | Flathub | `org.vinegarhq.Sober` |
 | Media | Spotify | Arch `extra` | `spotify-launcher` |
 | Social | Discord | Arch `extra` | `discord` |
-| VPN | Mullvad VPN | AUR | `mullvad-vpn-bin` |
+| VPN | Mullvad VPN | Arch `extra` | `mullvad-vpn` |
 | Development | OpenAI Codex CLI | official OpenAI standalone release | `codex` |
 
-These identifiers were checked against the Arch package database, AUR RPC metadata, Flathub, and official OpenAI documentation on 2026-07-21. SoundCloud is intentionally absent.
+These identifiers were checked against the Arch package database, AUR RPC metadata, Flathub, and official OpenAI documentation on 2026-07-22. SoundCloud is intentionally absent. Package managers resolve transitive dependencies such as `mullvad-vpn-daemon`; they are not duplicated as application requirements.
 
 ## System and package safety
 
 System updates use `pacman -Syu`; partial Arch upgrades are not performed. Package managers resolve transitive dependencies. Flatpak uses a consistent per-user scope and configures Flathub idempotently.
 
-All disposable downloads, extraction, logs, state, packages, and AUR clones use a race-safe `omfg-*` directory beneath `${TMPDIR:-/tmp}`. Successful runs remove it; failed runs and `--keep-temp` preserve it. AUR bootstrap installs `git` and `base-devel`, validates the `yay-bin` clone origin, runs `makepkg` only as the normal user, and elevates only `pacman -U` for the built package.
+All disposable downloads, extraction, logs, state, packages, and AUR clones use a race-safe `omfg-*` directory beneath `${TMPDIR:-/tmp}`. Successful runs remove it; failed runs and `--keep-temp` preserve it. AUR bootstrap installs `git` and `base-devel`, validates the `yay-bin` clone origin, runs `makepkg` only as the normal user, and elevates only `pacman -U` for the selected built package. A dedicated makepkg configuration disables automatic debug-package outputs so they cannot become unintended top-level installations.
 
 ## Git, GitHub, and SSH
 
@@ -129,8 +129,8 @@ Release artifacts are explicit runtime archives rather than GitHub-generated sou
 From a clean tagged checkout, maintainers build and independently validate one with:
 
 ```bash
-python tools/build_release.py --tag v0.1.0
-python tools/validate_release.py dist/omfg-0.1.0.tar.gz
+python tools/build_release.py --tag v0.1.1
+python tools/validate_release.py dist/omfg-0.1.1.tar.gz
 ```
 
 The builder selects only tracked runtime files and normalizes archive ordering, ownership,

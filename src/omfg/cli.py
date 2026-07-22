@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         parser().error(str(exc))
     except OmfgError as exc:
-        terminal.error(exc.component, exc.operation, exc.reason, exc.log_path)
+        terminal.error(exc.component, exc.operation, exc.reason, exc.log_path, exc.packages)
         return exc.exit_code
     except KeyboardInterrupt:
         terminal.output("Interrupted; no further changes will be made.")

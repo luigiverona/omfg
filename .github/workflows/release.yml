@@ -9,7 +9,7 @@ on:
       tag:
         description: Existing annotated release tag to validate or publish
         required: true
-        default: v0.1.0
+        default: v0.1.1
 
 concurrency:
   group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}

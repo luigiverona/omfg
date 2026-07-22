@@ -145,7 +145,7 @@ class Workflow:
 
     def _mutate(self, workspace: Path, pending: tuple[Package, ...]) -> None:
         capabilities = set(self.plan.selected) | set(self.plan.prerequisites)
-        pacman = PacmanManager(self.runner)
+        pacman = PacmanManager(self.runner, workspace)
         privileged = any(p.source in {Source.PACMAN, Source.AUR} for p in pending)
         if Capability.SYSTEM in capabilities or privileged:
             self.terminal.output("Administrator access is required.")

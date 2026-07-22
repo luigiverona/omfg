@@ -17,7 +17,7 @@ from tools.validate_release import validate_archive
 
 class ReleaseToolTests(unittest.TestCase):
     def test_version_declarations_agree(self) -> None:
-        self.assertEqual(project_version(Path.cwd()), "0.1.0")
+        self.assertEqual(project_version(Path.cwd()), "0.1.1")
 
     def test_version_mismatch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -40,8 +40,8 @@ class ReleaseToolTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as first_raw,
             tempfile.TemporaryDirectory() as second_raw,
         ):
-            first, first_digest = build(root, Path(first_raw), "v0.1.0", allow_dirty=True)
-            second, second_digest = build(root, Path(second_raw), "v0.1.0", allow_dirty=True)
+            first, first_digest = build(root, Path(first_raw), "v0.1.1", allow_dirty=True)
+            second, second_digest = build(root, Path(second_raw), "v0.1.1", allow_dirty=True)
             self.assertEqual(first_digest, second_digest)
             self.assertEqual(first.read_bytes(), second.read_bytes())
             validated = validate_archive(
@@ -54,16 +54,16 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertEqual(validated, first_digest)
             with tarfile.open(first, "r:gz") as bundle:
                 names = {member.name for member in bundle.getmembers()}
-            self.assertFalse(any(name.startswith("omfg-0.1.0/tests/") for name in names))
-            self.assertFalse(any(name.startswith("omfg-0.1.0/.github/") for name in names))
+            self.assertFalse(any(name.startswith("omfg-0.1.1/tests/") for name in names))
+            self.assertFalse(any(name.startswith("omfg-0.1.1/.github/") for name in names))
 
     def test_site_contains_only_distribution_surface(self) -> None:
         root = Path.cwd()
         with tempfile.TemporaryDirectory() as assets_raw, tempfile.TemporaryDirectory() as site_raw:
             assets = Path(assets_raw)
-            build(root, assets, "v0.1.0", allow_dirty=True)
+            build(root, assets, "v0.1.1", allow_dirty=True)
             site = Path(site_raw) / "site"
-            build_site(root, assets, site, "v0.1.0", skip_runtime_validation=True)
+            build_site(root, assets, site, "v0.1.1", skip_runtime_validation=True)
             files = {
                 path.relative_to(site).as_posix() for path in site.rglob("*") if path.is_file()
             }
@@ -72,9 +72,9 @@ class ReleaseToolTests(unittest.TestCase):
                 {
                     "index.html",
                     "install",
-                    "releases/v0.1.0/SHA256SUMS",
-                    "releases/v0.1.0/omfg-0.1.0.tar.gz",
-                    "releases/v0.1.0/omfg-0.1.0.tar.gz.sha256",
+                    "releases/v0.1.1/SHA256SUMS",
+                    "releases/v0.1.1/omfg-0.1.1.tar.gz",
+                    "releases/v0.1.1/omfg-0.1.1.tar.gz.sha256",
                 },
             )
             self.assertEqual(
@@ -91,10 +91,10 @@ class ReleaseToolTests(unittest.TestCase):
         root = Path.cwd()
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
-            archive = directory / "omfg-0.1.0.tar.gz"
+            archive = directory / "omfg-0.1.1.tar.gz"
             payload = io.BytesIO()
             with tarfile.open(fileobj=payload, mode="w", format=tarfile.USTAR_FORMAT) as bundle:
-                link = tarfile.TarInfo("omfg-0.1.0/link")
+                link = tarfile.TarInfo("omfg-0.1.1/link")
                 link.type = tarfile.SYMTYPE
                 link.linkname = "/etc/passwd"
                 epoch = int(
