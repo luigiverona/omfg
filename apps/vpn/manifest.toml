@@ -1,0 +1,5 @@
+[[package]]
+name = "Mullvad VPN"
+identifier = "mullvad-vpn-bin"
+source = "aur"
+executable = "mullvad-vpn"

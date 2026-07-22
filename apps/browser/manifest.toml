@@ -1,0 +1,11 @@
+[[package]]
+name = "LibreWolf"
+identifier = "librewolf-bin"
+source = "aur"
+executable = "librewolf"
+
+[[package]]
+name = "Mullvad Browser"
+identifier = "mullvad-browser-bin"
+source = "aur"
+executable = "mullvad-browser"

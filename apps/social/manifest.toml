@@ -1,0 +1,5 @@
+[[package]]
+name = "Discord"
+identifier = "discord"
+source = "pacman"
+executable = "discord"

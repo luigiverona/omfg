@@ -1,0 +1,5 @@
+[[package]]
+name = "Flatpak"
+identifier = "flatpak"
+source = "pacman"
+executable = "flatpak"

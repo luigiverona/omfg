@@ -1,0 +1,5 @@
+[[package]]
+name = "GitHub CLI"
+identifier = "github-cli"
+source = "pacman"
+executable = "gh"

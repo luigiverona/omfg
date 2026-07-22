@@ -1,0 +1,5 @@
+[[package]]
+name = "Visual Studio Code"
+identifier = "visual-studio-code-bin"
+source = "aur"
+executable = "code"

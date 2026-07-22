@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omfg"
+version = "0.1.0"
+description = "Production-minded Arch Linux workstation setup"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "Luigi Verona"}]
+dependencies = []
+
+[project.scripts]
+omfg = "omfg.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+omfg = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["E501", "S108", "S603", "S607"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["omfg"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
