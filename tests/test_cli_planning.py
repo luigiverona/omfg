@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import argparse
+import contextlib
+import io
 import unittest
+from unittest.mock import patch
 
 from omfg.catalog import load_catalog
-from omfg.cli import parser, selection_from_args
+from omfg.cli import InvocationKind, invocation_from_args, main, parser
 from omfg.models import Capability, Source
 from omfg.planning import build_plan
 
@@ -14,78 +16,140 @@ class CliPlanningTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.catalog = load_catalog()
 
-    def parse(self, *args: str) -> argparse.Namespace:
-        return parser().parse_args(args)
+    def invocation(self, *values: str):
+        return invocation_from_args(parser(self.catalog).parse_args(values), self.catalog)
 
-    def selection(self, *args: str):
-        return selection_from_args(
-            self.parse(*args), self.catalog.app_categories, self.catalog.dep_categories
-        )
+    def plan(self, *values: str):
+        return build_plan(self.invocation(*values).selection, self.catalog)
 
-    def test_no_flags_select_complete_workflow(self) -> None:
-        selected = self.selection()
-        self.assertTrue(selected.complete)
-        self.assertEqual(selected.capabilities, frozenset(Capability))
+    def test_no_command_and_setup_are_identical_complete_selections(self) -> None:
+        default = self.invocation()
+        setup = self.invocation("setup")
+        self.assertEqual(default, setup)
+        self.assertEqual(default.kind, InvocationKind.SETUP)
+        self.assertTrue(default.selection.complete)
+        self.assertEqual(default.selection.capabilities, frozenset(Capability))
 
-    def test_restricted_flag(self) -> None:
-        plan = build_plan(self.selection("--github"), self.catalog)
-        self.assertEqual(plan.selected, (Capability.GITHUB,))
-        self.assertIn(Capability.DEPS, plan.prerequisites)
-        self.assertNotIn(Capability.CODEX, plan.prerequisites)
-        self.assertEqual(
-            {package.identifier for package in plan.packages},
-            {"git", "github-cli", "openssh"},
-        )
+    def test_commands_map_to_internal_capabilities(self) -> None:
+        expected = {
+            "git": Capability.GIT,
+            "github": Capability.GITHUB,
+            "ssh": Capability.SSH,
+            "codex": Capability.CODEX,
+        }
+        for command, capability in expected.items():
+            with self.subTest(command=command):
+                invocation = self.invocation(command)
+                self.assertEqual(invocation.kind, InvocationKind.PARTIAL)
+                self.assertEqual(invocation.selection.capabilities, frozenset({capability}))
+        self.assertEqual(self.invocation("status").kind, InvocationKind.STATUS)
+        self.assertEqual(self.invocation("status").selection.capabilities, {Capability.CHECK})
 
-    def test_codex_includes_only_runtime_and_official_artifact(self) -> None:
-        plan = build_plan(self.selection("--codex"), self.catalog)
-        self.assertEqual(
-            {package.identifier for package in plan.packages},
-            {"codex", "curl"},
-        )
-
-    def test_repeatable_categories(self) -> None:
-        selection = self.selection("--app", "browser", "--app", "media", "--dep", "aur")
-        self.assertEqual(selection.app_categories, frozenset({"browser", "media"}))
-        self.assertEqual(selection.dep_categories, frozenset({"aur"}))
-
-    def test_unknown_category(self) -> None:
-        with self.assertRaisesRegex(ValueError, "unknown application category"):
-            self.selection("--app", "soundcloud")
-
-    def test_deterministic_deduplicated_plan(self) -> None:
-        first = build_plan(self.selection(), self.catalog)
-        second = build_plan(self.selection(), self.catalog)
+    def test_apps_categories_are_positional_deduplicated_and_order_independent(self) -> None:
+        all_apps = self.invocation("apps")
+        self.assertEqual(all_apps.selection.capabilities, {Capability.APPS})
+        self.assertFalse(all_apps.selection.app_categories)
+        first = self.plan("apps", "vpn", "browser", "vpn")
+        second = self.plan("apps", "browser", "vpn")
         self.assertEqual(first, second)
-        identities = [(p.source, p.identifier) for p in first.packages]
-        self.assertEqual(len(identities), len(set(identities)))
-        self.assertEqual(identities, sorted(identities, key=lambda p: (p[0].value, p[1])))
+        categories = {p.category for p in first.packages if p.source in {Source.PACMAN, Source.AUR}}
+        self.assertTrue({"browser", "vpn"}.issubset(categories))
 
-    def test_browser_only_has_no_unrelated_app(self) -> None:
-        plan = build_plan(self.selection("--app", "browser"), self.catalog)
-        app_ids = {p.identifier for p in plan.packages if p.source is Source.AUR}
-        self.assertIn("librewolf-bin", app_ids)
-        self.assertNotIn("mullvad-vpn-bin", app_ids)
+    def test_unknown_category_is_actionable_and_sorted(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown application category 'office'") as caught:
+            self.invocation("apps", "office")
+        valid = ", ".join(sorted(self.catalog.app_categories))
+        self.assertIn(f"choose from: {valid}", str(caught.exception))
 
-    def test_vpn_uses_one_official_requirement(self) -> None:
-        plan = build_plan(self.selection("--app", "vpn"), self.catalog)
-        applications = [package for package in plan.packages if package.category == "vpn"]
-        self.assertEqual(
-            [(package.source, package.identifier) for package in applications],
-            [(Source.PACMAN, "mullvad-vpn")],
-        )
-        self.assertNotIn("mullvad-vpn-daemon", {package.identifier for package in plan.packages})
+    def test_prerequisites_remain_planner_owned(self) -> None:
+        github = self.plan("github")
+        self.assertIn(Capability.GIT, github.prerequisites)
+        self.assertEqual({p.identifier for p in github.packages}, {"git", "github-cli", "openssh"})
+        ssh = self.plan("ssh")
+        self.assertIn(Capability.GITHUB, ssh.prerequisites)
+        codex = self.plan("codex")
+        self.assertIn(Capability.SHELL, codex.prerequisites)
+        self.assertEqual({p.identifier for p in codex.packages}, {"codex", "curl"})
+        game = self.plan("apps", "game")
+        self.assertIn(Capability.FLATPAK, game.prerequisites)
+        self.assertIn(Capability.FLATHUB, game.prerequisites)
 
-    def test_game_resolves_flatpak_and_flathub(self) -> None:
-        plan = build_plan(self.selection("--app", "game"), self.catalog)
-        self.assertIn(Capability.FLATPAK, plan.prerequisites)
-        self.assertIn(Capability.FLATHUB, plan.prerequisites)
-        self.assertIn("org.vinegarhq.Sober", {package.identifier for package in plan.packages})
+    def test_options_work_before_and_after_commands_without_overwrite(self) -> None:
+        cli = parser(self.catalog)
+        for before, after in (
+            (("--dry-run", "setup"), ("setup", "--dry-run")),
+            (("-n", "apps", "browser"), ("apps", "browser", "--dry-run")),
+            (("-v", "github"), ("github", "--verbose")),
+            (("--verbose", "status"), ("status", "--verbose")),
+            (("-y", "git"), ("git", "--yes")),
+            (("--keep-temp", "codex"), ("codex", "--keep-temp")),
+        ):
+            left, right = cli.parse_args(before), cli.parse_args(after)
+            self.assertEqual(vars(left), vars(right))
 
-    def test_development_app_resolves_codex_flow(self) -> None:
-        plan = build_plan(self.selection("--app", "development"), self.catalog)
-        self.assertIn(Capability.CODEX, plan.prerequisites)
+    def test_root_help_is_user_oriented(self) -> None:
+        help_text = parser(self.catalog).format_help()
+        for text in (
+            "usage: omfg [command] [options]",
+            "Set up an Arch Linux workstation.",
+            "setup",
+            "apps [CATEGORY ...]",
+            "git",
+            "github",
+            "ssh",
+            "codex",
+            "status",
+            "-n, --dry-run",
+            "-y, --yes",
+            "-v, --verbose",
+            "--version",
+        ):
+            self.assertIn(text, help_text)
+        for removed in (
+            "--deps",
+            "--flatpak",
+            "--flathub",
+            "--check",
+            "--app",
+            "--keep-temp",
+            "select ",
+        ):
+            self.assertNotIn(removed, help_text)
 
-    def test_check_has_complete_verification_inventory(self) -> None:
-        plan = build_plan(self.selection("--check"), self.catalog)
-        self.assertEqual(len(plan.packages), 15)
+    def test_command_help_is_focused(self) -> None:
+        cli = parser(self.catalog)
+        apps = cli._subparsers._group_actions[0].choices["apps"].format_help()  # type: ignore[union-attr]
+        self.assertIn("usage: omfg apps [CATEGORY ...] [options]", apps)
+        self.assertIn("Available:", apps)
+        self.assertNotIn("dependency", apps.lower())
+
+    def test_removed_flags_stop_before_workflow_and_explain_migration(self) -> None:
+        cases = {
+            "--apps": "omfg apps",
+            "--app": "omfg apps CATEGORY",
+            "--git": "omfg git",
+            "--github": "omfg github",
+            "--ssh": "omfg ssh",
+            "--codex": "omfg codex",
+            "--check": "omfg status",
+            "--system": "omfg setup",
+            "--deps": "resolved automatically",
+            "--dep": "resolved automatically",
+            "--flatpak": "resolved automatically",
+            "--flathub": "resolved automatically",
+        }
+        for flag, guidance in cases.items():
+            with self.subTest(flag=flag), patch("omfg.cli.Workflow.run") as run:
+                error = io.StringIO()
+                with contextlib.redirect_stderr(error), self.assertRaises(SystemExit) as caught:
+                    main([flag])
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn(guidance, error.getvalue())
+                run.assert_not_called()
+
+    def test_version(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as caught:
+            parser(self.catalog).parse_args(("--version",))
+        self.assertEqual(caught.exception.code, 0)
+        self.assertEqual(output.getvalue(), "Omfg 0.2.0\n")

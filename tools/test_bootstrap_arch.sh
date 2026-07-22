@@ -2,7 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly TAG="${OMFG_TEST_TAG:-v0.1.3}"
+readonly TAG="${OMFG_TEST_TAG:-v0.2.0}"
 readonly VERSION="${TAG#v}"
 readonly PAGES_BASE="${OMFG_TEST_PAGES_BASE:-https://luigiverona.github.io/omfg}"
 readonly RELEASE_BASE="${PAGES_BASE}/releases"

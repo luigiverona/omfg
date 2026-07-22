@@ -9,7 +9,7 @@ on:
       tag:
         description: Existing annotated release tag to validate or publish
         required: true
-        default: v0.1.3
+        default: v0.2.0
 
 concurrency:
   group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
@@ -66,9 +66,9 @@ jobs:
           su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --help"
           su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --version"
           su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --dry-run"
-          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --app browser --dry-run"
-          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --github --dry-run"
-          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --codex --dry-run"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg apps browser --dry-run"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg github --dry-run"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg codex --dry-run"
           su omfg-ci -c "git -C /tmp/omfg-build-one diff --check"
       - name: Build and validate twice
         env:

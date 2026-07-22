@@ -2,7 +2,7 @@
 
 `omfg` is a production-minded Arch Linux workstation setup tool. A plain `omfg` run validates the host, asks before changing it, performs a supported full system update, installs the declared software, configures Flatpak/Flathub, Git, GitHub SSH access, two isolated Codex profiles, the active shell path, and then independently verifies the result.
 
-Version 0.1.3 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
+Version 0.2.0 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
 
 ## Installation
 
@@ -33,30 +33,39 @@ python -m pip install -e .
 omfg --dry-run
 ```
 
-## Workflow selection
+## Commands
 
-No workflow-selection flags means the complete workflow. Flags restrict work to selected capabilities and automatically add only their prerequisites; there are no user-facing subcommands.
+No command means complete setup and is equivalent to `omfg setup`. Focused commands express user
+intent; dependencies, package sources, Flatpak, Flathub, and shell prerequisites are resolved
+automatically.
 
-```text
---system           full pacman system update
---deps             all dependency categories
---dep CATEGORY     one dependency category; repeatable
---apps             all application categories
---app CATEGORY     one application category; repeatable
---flatpak          Flatpak capability
---flathub          Flathub configuration
---git              Git identity and defaults
---github           GitHub CLI authentication and SSH protocol
---ssh              dedicated GitHub SSH key
---codex            official Codex and both profiles
---check            read-only verification
---dry-run          validate and print a mutation-free plan
---yes              approve normal confirmations, never key deletion
---verbose          show identifiers, sources, commands, and details
---keep-temp        preserve the temporary workspace
+```bash
+omfg
+omfg setup
+omfg apps
+omfg apps browser
+omfg apps browser vpn
+omfg git
+omfg github
+omfg ssh
+omfg codex
+omfg status
+omfg status --verbose
+omfg --dry-run
+omfg apps browser --dry-run
 ```
 
-Unknown application or dependency categories fail with the valid choices. Ordering and source/identifier deduplication are deterministic. Plans describe host-independent top-level software requirements. Before confirmation, read-only state inspection separately reports how many requirements are already present and how many installations remain. Final installed totals count observed absent-to-present transitions, not the size of the original catalog.
+`apps` accepts zero or more application categories positionally. With no category it selects every
+application. `status` performs complete read-only verification and never asks for sudo or changes
+configuration. `--yes` accepts safe defaults but can never approve destructive SSH-key deletion.
+
+The v0.1.x capability flags were replaced by commands: for example, `omfg --apps` becomes `omfg
+apps`, `omfg --app browser` becomes `omfg apps browser`, `omfg --github` becomes `omfg github`, and
+`omfg --check` becomes `omfg status`. Internal dependency and Flatpak flags are no longer needed.
+
+Unknown application categories fail with the valid choices. Ordering and source/identifier
+deduplication are deterministic. Plans describe host-independent top-level software requirements.
+Before confirmation, read-only state inspection reports which requirements are present or missing.
 
 ## Application catalog
 
@@ -117,14 +126,17 @@ shellcheck bootstrap/install.in
 omfg --help
 omfg --version
 omfg --dry-run
+omfg apps browser --dry-run
+omfg github --dry-run
+omfg status
 ```
 
 Release artifacts are explicit runtime archives rather than GitHub-generated source archives.
 From a clean tagged checkout, maintainers build and independently validate one with:
 
 ```bash
-python tools/build_release.py --tag v0.1.3
-python tools/validate_release.py dist/omfg-0.1.3.tar.gz
+python tools/build_release.py --tag v0.2.0
+python tools/validate_release.py dist/omfg-0.2.0.tar.gz
 ```
 
 The builder selects only tracked runtime files and normalizes archive ordering, ownership,

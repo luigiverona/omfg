@@ -80,42 +80,42 @@ class UiVerificationBootstrapTests(unittest.TestCase):
         archive = root / "release.tar.gz"
         with tarfile.open(archive, "w:gz") as bundle:
             for directory in (
-                "omfg-0.1.3",
-                "omfg-0.1.3/apps",
-                "omfg-0.1.3/deps",
-                "omfg-0.1.3/src",
-                "omfg-0.1.3/src/omfg",
+                "omfg-0.2.0",
+                "omfg-0.2.0/apps",
+                "omfg-0.2.0/deps",
+                "omfg-0.2.0/src",
+                "omfg-0.2.0/src/omfg",
             ):
                 info = tarfile.TarInfo(directory)
                 info.type = tarfile.DIRTYPE
                 bundle.addfile(info)
             for name, content in (
-                ("omfg-0.1.3/pyproject.toml", b"[project]\nname='omfg'\n"),
-                ("omfg-0.1.3/src/omfg/__init__.py", b""),
+                ("omfg-0.2.0/pyproject.toml", b"[project]\nname='omfg'\n"),
+                ("omfg-0.2.0/src/omfg/__init__.py", b""),
                 (
-                    "omfg-0.1.3/src/omfg/__main__.py",
+                    "omfg-0.2.0/src/omfg/__main__.py",
                     b"from omfg.cli import main\nraise SystemExit(main())\n",
                 ),
                 (
-                    "omfg-0.1.3/src/omfg/cli.py",
-                    b"def main():\n print('Omfg 0.1.3')\n return 0\n",
+                    "omfg-0.2.0/src/omfg/cli.py",
+                    b"def main():\n print('Omfg 0.2.0')\n return 0\n",
                 ),
             ):
                 info = tarfile.TarInfo(name)
                 info.size = len(content)
                 bundle.addfile(info, io.BytesIO(content))
             if unsafe_link:
-                link = tarfile.TarInfo("omfg-0.1.3/escape")
+                link = tarfile.TarInfo("omfg-0.2.0/escape")
                 link.type = tarfile.SYMTYPE
                 link.linkname = "/tmp/escape"
                 bundle.addfile(link)
-        named_archive = root / "omfg-0.1.3.tar.gz"
+        named_archive = root / "omfg-0.2.0.tar.gz"
         archive.rename(named_archive)
         archive = named_archive
         installer = root / "install"
         build_installer(
             Path(__file__).resolve().parents[1] / "bootstrap/install.in",
-            "0.1.3",
+            "0.2.0",
             archive,
             installer,
         )
@@ -154,7 +154,7 @@ class UiVerificationBootstrapTests(unittest.TestCase):
                 (str(launcher), argument), env=env, text=True, capture_output=True
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("Omfg 0.1.3", result.stdout)
+            self.assertIn("Omfg 0.2.0", result.stdout)
 
     def test_bootstrap_fish_detection_atomic_install_and_idempotent_path(self) -> None:
         self._require_arch_nonroot()

@@ -503,6 +503,19 @@ class Workflow:
 
     def _verify(self) -> None:
         self._begin(WorkflowStage.VERIFICATION)
+        results = self.verification_results()
+        failures = [result for result in results if not result.passed]
+        if failures:
+            visible = failures if self.options.verbose else failures[:3]
+            reason = "; ".join(f"{item.name}: {item.reason}" for item in visible)
+            if len(visible) < len(failures):
+                reason += f"; and {len(failures) - len(visible)} more checks"
+            raise ValidationError("Verification", "inspect workstation", reason)
+        self.render_readiness()
+        self.terminal.output("All verification checks passed.")
+        self._finish(WorkflowStage.VERIFICATION)
+
+    def verification_results(self) -> list[CheckResult]:
         verifier = Verifier(self.runner, self.options.home)
         capabilities = self._capabilities()
         results = [verifier.system(), *(verifier.package(p) for p in self.plan.packages)]
@@ -556,13 +569,10 @@ class Workflow:
             )
         if Capability.SHELL in capabilities:
             results.append(verifier.shell_configuration(self._shell()))
-        failures = [result for result in results if not result.passed]
-        if failures:
-            visible = failures if self.options.verbose else failures[:3]
-            reason = "; ".join(f"{item.name}: {item.reason}" for item in visible)
-            if len(visible) < len(failures):
-                reason += f"; and {len(failures) - len(visible)} more checks"
-            raise ValidationError("Verification", "inspect workstation", reason)
+        return results
+
+    def render_readiness(self) -> None:
+        capabilities = self._capabilities()
         if self.plan.packages:
             self.terminal.output("All software requirements are ready.")
         if Capability.GIT in capabilities:
@@ -575,8 +585,6 @@ class Workflow:
             self.terminal.output("Both Codex profiles are ready.")
         if Capability.SHELL in capabilities:
             self.terminal.output("The shell PATH is ready.")
-        self.terminal.output("All verification checks passed.")
-        self._finish(WorkflowStage.VERIFICATION)
 
     def _render_completion(self) -> None:
         self.terminal.output("")

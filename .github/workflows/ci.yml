@@ -25,7 +25,7 @@ jobs:
       - run: ruff format --check .
       - run: mypy src
       - run: mypy tools
-      - run: python tools/build_release.py --tag v0.1.3 --check-only
+      - run: python tools/build_release.py --tag v0.2.0 --check-only
       - run: git diff --check
 
   shell:
@@ -52,6 +52,6 @@ jobs:
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --help"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --version"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --dry-run"
-      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --app browser --dry-run"
-      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --github --dry-run"
-      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg --codex --dry-run"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg apps browser --dry-run"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg github --dry-run"
+      - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg codex --dry-run"
