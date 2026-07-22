@@ -26,7 +26,13 @@ class PacmanManager:
 
     def full_update(self) -> bool:
         result = self.runner.run(
-            self._command(("sudo", "pacman", "-Syu", "--noconfirm", "--needed"), ())
+            Command(
+                ("sudo", "pacman", "-Syu", "--noconfirm", "--needed"),
+                env={"LC_ALL": "C"},
+                failure_component="Package installation",
+                failure_operation="install packages",
+                log_path=self.workspace / "logs/pacman.log" if self.workspace else None,
+            )
         )
         combined = (result.stdout + result.stderr).lower()
         return "there is nothing to do" not in combined

@@ -360,15 +360,43 @@ class Workflow:
         existing_name = git.get("user.name")
         existing_email = git.get("user.email")
         existing = bool(existing_name and existing_email)
-        name = existing_name or self.terminal.input("Name: ").strip()
-        email = existing_email or self.terminal.input("Email: ").strip()
         if existing:
-            self.terminal.output(f"Name: {name}")
-            self.terminal.output(f"Email: {email}")
-        question = "Keep this identity?" if existing else "Use this identity?"
-        if self.terminal.confirm(question, default=True, assume_yes=self.options.assume_yes):
-            git.configure(GitIdentity(name, email))
-            self.terminal.output("Git identity unchanged." if existing else "Git identity saved.")
+            original = GitIdentity(existing_name or "", existing_email or "")
+            self.terminal.output(f"Name: {original.name}")
+            self.terminal.output(f"Email: {original.email}")
+            if self.terminal.confirm(
+                "Keep this identity?", default=True, assume_yes=self.options.assume_yes
+            ):
+                git.configure(original)
+                self.terminal.output("Git identity unchanged.")
+                return
+            replacement = GitIdentity(
+                self._identity_value("New name: ", "name"),
+                self._identity_value("New email: ", "email"),
+            )
+            if self.terminal.confirm("Use this identity?", default=True):
+                git.configure(replacement)
+                self.terminal.output("Git identity updated.")
+            else:
+                git.configure(original)
+                self.terminal.output("Git identity unchanged.")
+            return
+
+        identity = GitIdentity(
+            self._identity_value("Name: ", "name"),
+            self._identity_value("Email: ", "email"),
+        )
+        if self.terminal.confirm(
+            "Use this identity?", default=True, assume_yes=self.options.assume_yes
+        ):
+            git.configure(identity)
+            self.terminal.output("Git identity saved.")
+
+    def _identity_value(self, prompt: str, field: str) -> str:
+        value = self.terminal.input(prompt).strip()
+        if not value:
+            raise ValidationError("Git", "configure identity", f"{field} cannot be empty")
+        return value
 
     def _github(self) -> None:
         github = GitHubConfigurator(self.runner)

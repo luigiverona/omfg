@@ -13,7 +13,7 @@ from omfg.catalog import load_catalog
 from omfg.cli import main
 from omfg.config.codex import CodexManager
 from omfg.config.ssh_inventory import LocalKey
-from omfg.errors import CommandError
+from omfg.errors import CommandError, ValidationError
 from omfg.execution import Command, CommandResult
 from omfg.models import (
     Capability,
@@ -82,6 +82,22 @@ class MostlyReadyRunner(FakeRunner):
             return CommandResult(argv, 0, "luigiverona\n", "")
         if argv[:3] == ("gh", "config", "get"):
             return CommandResult(argv, 0, "ssh\n", "")
+        return CommandResult(argv, 0, "", "")
+
+
+class GitIdentityRunner(FakeRunner):
+    def __init__(self, name: str | None, email: str | None) -> None:
+        super().__init__()
+        self.values = {"user.name": name, "user.email": email, "init.defaultBranch": "main"}
+
+    def run(self, command: Command, *, check: bool = True) -> CommandResult:
+        self.commands.append(command)
+        argv = command.argv
+        if argv[:4] == ("git", "config", "--global", "--get"):
+            value = self.values.get(argv[4])
+            return CommandResult(argv, 0 if value else 1, f"{value}\n" if value else "", "")
+        if argv[:3] == ("git", "config", "--global") and len(argv) == 5:
+            self.values[argv[3]] = argv[4]
         return CommandResult(argv, 0, "", "")
 
 
@@ -308,13 +324,99 @@ class OutputTranscriptTests(unittest.TestCase):
 
     def test_new_git_identity_transcript(self) -> None:
         transcript = Transcript(("luigiverona", "lluuigivveerona@gmail.com", "y"))
-        workflow = self.workflow(Plan((Capability.GIT,), (), (), (), ()), transcript)
+        runner = GitIdentityRunner(None, None)
+        workflow = self.workflow(Plan((Capability.GIT,), (), (), (), ()), transcript, runner=runner)
         workflow._git()
         self.assertEqual(
             transcript.text,
             "Name: luigiverona\nEmail: lluuigivveerona@gmail.com\n"
             "Use this identity? [Y/n] y\nGit identity saved.",
         )
+        self.assertEqual(runner.values["user.name"], "luigiverona")
+        self.assertEqual(runner.values["user.email"], "lluuigivveerona@gmail.com")
+
+    def test_existing_git_identity_is_kept(self) -> None:
+        transcript = Transcript(("y",))
+        runner = GitIdentityRunner("luigiverona", "lluuigivveerona@gmail.com")
+        workflow = self.workflow(Plan((Capability.GIT,), (), (), (), ()), transcript, runner=runner)
+        workflow._git()
+        self.assertEqual(
+            transcript.text,
+            "Name: luigiverona\nEmail: lluuigivveerona@gmail.com\n"
+            "Keep this identity? [Y/n] y\nGit identity unchanged.",
+        )
+
+    def test_existing_git_identity_is_replaced(self) -> None:
+        transcript = Transcript(("n", "Luigi Verona", "luigi@example.com", "y"))
+        runner = GitIdentityRunner("luigiverona", "lluuigivveerona@gmail.com")
+        workflow = self.workflow(Plan((Capability.GIT,), (), (), (), ()), transcript, runner=runner)
+        workflow._git()
+        self.assertEqual(
+            transcript.text,
+            "Name: luigiverona\nEmail: lluuigivveerona@gmail.com\n"
+            "Keep this identity? [Y/n] n\nNew name: Luigi Verona\n"
+            "New email: luigi@example.com\nUse this identity? [Y/n] y\n"
+            "Git identity updated.",
+        )
+        self.assertEqual(runner.values["user.name"], "Luigi Verona")
+        self.assertEqual(runner.values["user.email"], "luigi@example.com")
+
+    def test_rejected_replacement_retains_existing_git_identity(self) -> None:
+        transcript = Transcript(("n", "Luigi Verona", "luigi@example.com", "n"))
+        runner = GitIdentityRunner("luigiverona", "lluuigivveerona@gmail.com")
+        workflow = self.workflow(Plan((Capability.GIT,), (), (), (), ()), transcript, runner=runner)
+        workflow._git()
+        self.assertEqual(
+            transcript.text,
+            "Name: luigiverona\nEmail: lluuigivveerona@gmail.com\n"
+            "Keep this identity? [Y/n] n\nNew name: Luigi Verona\n"
+            "New email: luigi@example.com\nUse this identity? [Y/n] n\n"
+            "Git identity unchanged.",
+        )
+        self.assertEqual(runner.values["user.name"], "luigiverona")
+        self.assertEqual(runner.values["user.email"], "lluuigivveerona@gmail.com")
+
+    def test_assume_yes_keeps_existing_git_identity_without_prompts(self) -> None:
+        transcript = Transcript()
+        runner = GitIdentityRunner("luigiverona", "lluuigivveerona@gmail.com")
+        workflow = Workflow(
+            Plan((Capability.GIT,), (), (), (), ()),
+            RunOptions(assume_yes=True, home=Path("/tmp/test-home")),
+            Terminal(input_fn=transcript.input, output=transcript.output),
+            runner=runner,  # type: ignore[arg-type]
+        )
+        workflow._git()
+        self.assertEqual(
+            transcript.text,
+            "Name: luigiverona\nEmail: lluuigivveerona@gmail.com\nGit identity unchanged.",
+        )
+
+    def test_empty_git_replacement_values_are_rejected(self) -> None:
+        for answers, reason, expected in (
+            (
+                ("n", ""),
+                "name cannot be empty",
+                "Name: luigiverona\nEmail: lluuigivveerona@gmail.com\n"
+                "Keep this identity? [Y/n] n\nNew name: ",
+            ),
+            (
+                ("n", "Luigi Verona", ""),
+                "email cannot be empty",
+                "Name: luigiverona\nEmail: lluuigivveerona@gmail.com\n"
+                "Keep this identity? [Y/n] n\nNew name: Luigi Verona\nNew email: ",
+            ),
+        ):
+            with self.subTest(reason=reason):
+                transcript = Transcript(answers)
+                runner = GitIdentityRunner("luigiverona", "lluuigivveerona@gmail.com")
+                workflow = self.workflow(
+                    Plan((Capability.GIT,), (), (), (), ()), transcript, runner=runner
+                )
+                with self.assertRaisesRegex(ValidationError, reason):
+                    workflow._git()
+                self.assertEqual(transcript.text, expected)
+                self.assertEqual(runner.values["user.name"], "luigiverona")
+                self.assertEqual(runner.values["user.email"], "lluuigivveerona@gmail.com")
 
     def test_new_github_authentication_transcript(self) -> None:
         transcript = Transcript()

@@ -114,7 +114,31 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(
             runner.commands[0].argv, ("sudo", "pacman", "-Syu", "--noconfirm", "--needed")
         )
+        self.assertEqual(runner.commands[0].env, {"LC_ALL": "C"})
         self.assertEqual(runner.commands[1].argv[-2:], ("a", "z"))
+
+    def test_pacman_update_result_is_locale_independent(self) -> None:
+        command = ("sudo", "pacman", "-Syu", "--noconfirm", "--needed")
+        no_op = FakeRunner({command: CommandResult(command, 0, " there is nothing to do\n", "")})
+        changed = FakeRunner({command: CommandResult(command, 0, "Packages (1) example-2.0\n", "")})
+        self.assertFalse(PacmanManager(no_op).full_update())  # type: ignore[arg-type]
+        self.assertTrue(PacmanManager(changed).full_update())  # type: ignore[arg-type]
+        self.assertEqual(no_op.commands[0].env, {"LC_ALL": "C"})
+
+    @patch.dict("os.environ", {"LANG": "fr_FR.UTF-8", "OMFG_INHERITED": "present"})
+    def test_command_environment_overrides_locale_without_replacing_environment(self) -> None:
+        result = CommandRunner().run(
+            Command(
+                (
+                    sys.executable,
+                    "-c",
+                    "import os; print(os.environ['LC_ALL']); print(os.environ['OMFG_INHERITED'])",
+                ),
+                env={"LC_ALL": "C"},
+                mutate=False,
+            )
+        )
+        self.assertEqual(result.stdout, "C\npresent\n")
 
     @patch("omfg.packages.managers.os.geteuid", return_value=0)
     def test_aur_never_builds_as_root(self, _: object) -> None:
