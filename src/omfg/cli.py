@@ -89,6 +89,7 @@ def parser(catalog: Catalog | None = None) -> argparse.ArgumentParser:
     for name, description in specs:
         child = commands.add_parser(
             name,
+            usage=f"omfg {name} [options]",
             help=description,
             description=description,
             formatter_class=HelpFormatter,
@@ -102,7 +103,7 @@ def parser(catalog: Catalog | None = None) -> argparse.ArgumentParser:
         if catalog
         else "loaded from the application catalog"
     )
-    children["apps"].usage = "%(prog)s [CATEGORY ...] [options]"
+    children["apps"].usage = "omfg apps [CATEGORY ...] [options]"
     children["apps"].add_argument(
         "categories",
         nargs="*",

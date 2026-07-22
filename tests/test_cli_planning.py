@@ -118,8 +118,20 @@ class CliPlanningTests(unittest.TestCase):
 
     def test_command_help_is_focused(self) -> None:
         cli = parser(self.catalog)
-        apps = cli._subparsers._group_actions[0].choices["apps"].format_help()  # type: ignore[union-attr]
-        self.assertIn("usage: omfg apps [CATEGORY ...] [options]", apps)
+        choices = cli._subparsers._group_actions[0].choices  # type: ignore[union-attr]
+        expected = {
+            "setup": "usage: omfg setup [options]",
+            "apps": "usage: omfg apps [CATEGORY ...] [options]",
+            "git": "usage: omfg git [options]",
+            "github": "usage: omfg github [options]",
+            "ssh": "usage: omfg ssh [options]",
+            "codex": "usage: omfg codex [options]",
+            "status": "usage: omfg status [options]",
+        }
+        for command, usage in expected.items():
+            with self.subTest(command=command):
+                self.assertTrue(choices[command].format_help().startswith(usage))
+        apps = choices["apps"].format_help()
         self.assertIn("Available:", apps)
         self.assertNotIn("dependency", apps.lower())
 
