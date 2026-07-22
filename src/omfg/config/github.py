@@ -36,6 +36,13 @@ class GitHubConfigurator:
             Command(("gh", "config", "set", "git_protocol", "ssh", "--host", "github.com"))
         )
 
+    def protocol(self) -> str | None:
+        result = self.runner.run(
+            Command(("gh", "config", "get", "git_protocol", "--host", "github.com"), mutate=False),
+            check=False,
+        )
+        return result.stdout.strip() or None
+
     def account(self) -> str | None:
         result = self.runner.run(
             Command(("gh", "api", "user", "--jq", ".login"), mutate=False), check=False

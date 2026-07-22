@@ -2,7 +2,7 @@
 
 `omfg` is a production-minded Arch Linux workstation setup tool. A plain `omfg` run validates the host, asks before changing it, performs a supported full system update, installs the declared software, configures Flatpak/Flathub, Git, GitHub SSH access, two isolated Codex profiles, the active shell path, and then independently verifies the result.
 
-Version 0.1.2 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
+Version 0.1.3 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
 
 ## Installation
 
@@ -123,8 +123,8 @@ Release artifacts are explicit runtime archives rather than GitHub-generated sou
 From a clean tagged checkout, maintainers build and independently validate one with:
 
 ```bash
-python tools/build_release.py --tag v0.1.2
-python tools/validate_release.py dist/omfg-0.1.2.tar.gz
+python tools/build_release.py --tag v0.1.3
+python tools/validate_release.py dist/omfg-0.1.3.tar.gz
 ```
 
 The builder selects only tracked runtime files and normalizes archive ordering, ownership,

@@ -167,8 +167,8 @@ class StateAndUxTests(unittest.TestCase):
                 command.argv for command in runner.commands if command.argv[-1:] == ("login",)
             ]
             self.assertEqual(login_commands, [(str(manager.bin_dir / "codex-02"), "login")])
-            self.assertIn("codex-01 already authenticated", output)
-            self.assertIn("codex-02 authenticated", output)
+            self.assertIn("codex-01 is already signed in.", output)
+            self.assertIn("codex-02 signed in.", output)
 
     def test_complete_workstation_package_inventory_has_no_pending_items(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -219,7 +219,7 @@ class StateAndUxTests(unittest.TestCase):
                 return_value=CheckResult("supported system", True),
             ):
                 workflow._verify()
-            self.assertIn("All checks passed", output)
+            self.assertIn("All verification checks passed.", output)
 
     def test_dry_run_distinguishes_requirements_and_pending_installations(self) -> None:
         output: list[str] = []
@@ -230,9 +230,9 @@ class StateAndUxTests(unittest.TestCase):
             Terminal(output=output.append),
             runner=FakeRunner(),  # type: ignore[arg-type]
         )
-        workflow._render_dry_run(self.packages[:2])
-        self.assertIn("Software requirements: 15", output)
-        self.assertIn("Pending installations: 2", output)
+        workflow.progress.selected = workflow._selected_stages(self.packages[:2])
+        workflow._render_plan(self.packages[:2])
+        self.assertIn("Thirteen of fifteen software requirements are already present.", output)
 
     def test_vpn_dry_run_groups_official_package_as_system_software(self) -> None:
         vpn = next(package for package in self.packages if package.identifier == "mullvad-vpn")
@@ -243,11 +243,12 @@ class StateAndUxTests(unittest.TestCase):
             Terminal(output=output.append),
             runner=FakeRunner(),  # type: ignore[arg-type]
         )
-        workflow._render_dry_run((vpn,))
+        workflow.progress.selected = workflow._selected_stages((vpn,))
+        workflow._render_plan((vpn,))
+        workflow._render_verbose_plan((vpn,))
         rendered = "\n".join(output)
-        self.assertIn("Software requirements: 1", rendered)
-        self.assertIn("Pending installations: 1", rendered)
-        self.assertIn("pacman: mullvad-vpn (pending)", rendered)
+        self.assertIn("Missing application: Mullvad VPN from Arch Linux.", rendered)
+        self.assertIn("pacman: mullvad-vpn (pending).", rendered)
         self.assertNotIn("mullvad-vpn-bin", rendered)
 
     def test_normal_summary_uses_source_specific_plain_language(self) -> None:
@@ -264,11 +265,12 @@ class StateAndUxTests(unittest.TestCase):
             for package in self.packages
             if package.identifier in {"discord", "org.vinegarhq.Sober", "codex"}
         )
-        workflow._render_change_summary(pending)
+        workflow.progress.selected = workflow._selected_stages(pending)
+        workflow._render_plan(pending)
         rendered = "\n".join(output)
-        self.assertIn("1 system/AUR package", rendered)
-        self.assertIn("1 Flatpak application", rendered)
-        self.assertIn("1 upstream tool", rendered)
+        self.assertIn("Discord from Arch Linux.", rendered)
+        self.assertIn("Sober from Flatpak.", rendered)
+        self.assertIn("OpenAI Codex CLI from the official upstream release.", rendered)
         self.assertNotIn("✓", rendered)
 
     def test_final_summary_uses_execution_results(self) -> None:
@@ -279,21 +281,12 @@ class StateAndUxTests(unittest.TestCase):
             Terminal(output=output.append),
             runner=FakeRunner(),  # type: ignore[arg-type]
         )
-        workflow.summary.installed = 2
-        workflow.summary.components_configured = 3
-        workflow.summary.existing_keys_preserved = 1
-        workflow._render_final_summary()
+        workflow._render_completion()
         self.assertEqual(
             output,
             [
                 "",
-                "Setup complete",
-                "",
-                "Software installed        2",
-                "Components configured     3",
-                "Existing keys preserved   1",
-                "Failures                  0",
-                "",
+                "Setup complete.",
                 "Workstation ready.",
             ],
         )

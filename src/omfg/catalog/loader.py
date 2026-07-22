@@ -5,7 +5,7 @@ import tomllib
 from pathlib import Path
 
 from omfg.errors import ValidationError
-from omfg.models import Catalog, Package, Source
+from omfg.models import Catalog, Package, PackageKind, Source
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+@:-]*$")
 KEYS = {"name", "identifier", "source", "executable"}
@@ -51,7 +51,14 @@ def _read_kind(root: Path, kind: str) -> tuple[tuple[Package, ...], frozenset[st
             except (ValueError, TypeError) as exc:
                 raise ValidationError("catalog", "validate", f"{path}: unknown source") from exc
             packages.append(
-                Package(source, identifier, str(raw["name"]), category, raw.get("executable"))
+                Package(
+                    source,
+                    identifier,
+                    str(raw["name"]),
+                    category,
+                    raw.get("executable"),
+                    PackageKind.APPLICATION if kind == "apps" else PackageKind.DEPENDENCY,
+                )
             )
     return tuple(packages), frozenset(categories)
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly TAG="${OMFG_TEST_TAG:-v0.1.2}"
+readonly TAG="${OMFG_TEST_TAG:-v0.1.3}"
 readonly VERSION="${TAG#v}"
 readonly PAGES_BASE="${OMFG_TEST_PAGES_BASE:-https://luigiverona.github.io/omfg}"
 readonly RELEASE_BASE="${PAGES_BASE}/releases"
@@ -17,7 +17,10 @@ curl -fsSL --proto '=https' "${RELEASE_BASE}/${TAG}/omfg-${VERSION}.tar.gz" -o "
 expected_sha256="$(sed -n 's/^readonly EXPECTED_SHA256="\([0-9a-f]\{64\}\)"$/\1/p' "${INSTALLER}")"
 [[ ${expected_sha256} =~ ^[0-9a-f]{64}$ ]] || { printf 'invalid embedded SHA-256\n' >&2; exit 1; }
 printf '%s  %s\n' "${expected_sha256}" "${ARCHIVE}" | sha256sum -c -
-! grep -Fq '.sha256' "${INSTALLER}"
+if grep -Fq '.sha256' "${INSTALLER}"; then
+  printf 'installer contains a network checksum fallback\n' >&2
+  exit 1
+fi
 bash -n "${INSTALLER}"
 shellcheck "${INSTALLER}"
 
@@ -53,9 +56,17 @@ install_twice() {
   output="$(runuser -u "${user}" -- env HOME="${home}" \
     OMFG_RELEASE_BASE="${RELEASE_BASE}" \
     bash "${INSTALLER}")"
-  grep -Fq "Omfg ${VERSION} installed" <<<"${output}"
-  grep -Fq 'A new shell session is required.' <<<"${output}"
-  grep -Fq 'Run omfg when you are ready.' <<<"${output}"
+  grep -Fq 'The omfg command is installed.' <<<"${output}"
+  grep -Fq "Configuring the ${user#omfg-} PATH... done." <<<"${output}"
+  grep -Fq 'Run omfg to set up the workstation.' <<<"${output}"
+  if grep -Fq "${VERSION}" <<<"${output}"; then
+    printf 'bootstrap output exposed the version banner\n' >&2
+    exit 1
+  fi
+  if grep -Fq '% Total' <<<"${output}"; then
+    printf 'bootstrap output exposed the curl transfer meter\n' >&2
+    exit 1
+  fi
   runuser -u "${user}" -- env HOME="${home}" \
     OMFG_RELEASE_BASE="${RELEASE_BASE}" \
     bash "${INSTALLER}" >/dev/null

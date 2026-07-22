@@ -80,8 +80,6 @@ def main(argv: list[str] | None = None) -> int:
         catalog = load_catalog()
         selection = selection_from_args(args, catalog.app_categories, catalog.dep_categories)
         plan = build_plan(selection, catalog)
-        if not args.dry_run:
-            terminal.output(f"Omfg {__version__}")
         options = RunOptions(args.dry_run, args.yes, args.verbose, args.keep_temp, Path.home())
         return Workflow(plan, options, terminal).run()
     except ValueError as exc:
@@ -90,7 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         terminal.error(exc.component, exc.operation, exc.reason, exc.log_path, exc.packages)
         return exc.exit_code
     except KeyboardInterrupt:
-        terminal.output("Interrupted; no further changes will be made.")
+        terminal.output("Setup paused.")
+        terminal.output("Run omfg again to continue.")
         return 130
     except Exception as exc:
         terminal.error("setup", "complete workstation setup", str(exc))

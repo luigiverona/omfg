@@ -9,11 +9,13 @@ class Terminal:
     ) -> None:
         self.input = input_fn
         self.output = output
+        self._has_section = False
 
     def section(self, title: str) -> None:
-        self.output("")
+        if self._has_section:
+            self.output("")
         self.output(title)
-        self.output("")
+        self._has_section = True
 
     def confirm(
         self,
@@ -40,14 +42,14 @@ class Terminal:
         packages: tuple[str, ...] = (),
     ) -> None:
         if packages:
-            self.output(f"{component} failed")
-            self.output(f"Packages: {', '.join(packages)}")
-            self.output(f"Reason: {reason}")
+            self.output(f"{component} failed.")
+            self.output(f"Packages: {', '.join(packages)}.")
+            self.output(f"Reason: {reason.rstrip('.')}.")
             if log_path:
-                self.output(f"Details: {log_path}")
-            self.output("Rerun with --verbose for complete output.")
+                self.output(f"Details: {log_path}.")
+            self.output("Run omfg --verbose for complete command output.")
             return
-        self.output(f"{component} failed while trying to {operation}: {reason}")
+        self.output(f"{component} failed while trying to {operation}: {reason.rstrip('.')}.")
         if log_path:
-            self.output(f"Log: {log_path}")
-        self.output("Rerun with --verbose for details.")
+            self.output(f"Details: {log_path}.")
+        self.output("Run omfg --verbose for complete command output.")

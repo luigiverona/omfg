@@ -28,7 +28,9 @@ class UiVerificationBootstrapTests(unittest.TestCase):
         output: list[str] = []
         terminal = Terminal(input_fn=lambda _: "", output=output.append)
         terminal.section("Git configuration")
-        self.assertEqual(output, ["", "Git configuration", ""])
+        terminal.output("Content.")
+        terminal.section("Next")
+        self.assertEqual(output, ["Git configuration", "Content.", "", "Next"])
         self.assertTrue(terminal.confirm("Keep?", default=True))
         self.assertFalse(terminal.confirm("Delete?", default=False))
 
@@ -44,11 +46,11 @@ class UiVerificationBootstrapTests(unittest.TestCase):
         self.assertEqual(
             output,
             [
-                "AUR installation failed",
-                "Packages: mullvad-browser-bin",
-                "Reason: old and new are in conflict",
-                "Details: /tmp/omfg-test/logs/aur.log",
-                "Rerun with --verbose for complete output.",
+                "AUR installation failed.",
+                "Packages: mullvad-browser-bin.",
+                "Reason: old and new are in conflict.",
+                "Details: /tmp/omfg-test/logs/aur.log.",
+                "Run omfg --verbose for complete command output.",
             ],
         )
 
@@ -69,7 +71,7 @@ class UiVerificationBootstrapTests(unittest.TestCase):
 
     def test_bootstrap_does_not_execute_omfg(self) -> None:
         text = (Path(__file__).resolve().parents[1] / "bootstrap/install.in").read_text()
-        self.assertIn("Run omfg when you are ready", text)
+        self.assertIn("Run omfg to set up the workstation", text)
         self.assertNotIn("exec omfg", text)
 
     def _bootstrap_fixture(
@@ -78,42 +80,42 @@ class UiVerificationBootstrapTests(unittest.TestCase):
         archive = root / "release.tar.gz"
         with tarfile.open(archive, "w:gz") as bundle:
             for directory in (
-                "omfg-0.1.2",
-                "omfg-0.1.2/apps",
-                "omfg-0.1.2/deps",
-                "omfg-0.1.2/src",
-                "omfg-0.1.2/src/omfg",
+                "omfg-0.1.3",
+                "omfg-0.1.3/apps",
+                "omfg-0.1.3/deps",
+                "omfg-0.1.3/src",
+                "omfg-0.1.3/src/omfg",
             ):
                 info = tarfile.TarInfo(directory)
                 info.type = tarfile.DIRTYPE
                 bundle.addfile(info)
             for name, content in (
-                ("omfg-0.1.2/pyproject.toml", b"[project]\nname='omfg'\n"),
-                ("omfg-0.1.2/src/omfg/__init__.py", b""),
+                ("omfg-0.1.3/pyproject.toml", b"[project]\nname='omfg'\n"),
+                ("omfg-0.1.3/src/omfg/__init__.py", b""),
                 (
-                    "omfg-0.1.2/src/omfg/__main__.py",
+                    "omfg-0.1.3/src/omfg/__main__.py",
                     b"from omfg.cli import main\nraise SystemExit(main())\n",
                 ),
                 (
-                    "omfg-0.1.2/src/omfg/cli.py",
-                    b"def main():\n print('Omfg 0.1.2')\n return 0\n",
+                    "omfg-0.1.3/src/omfg/cli.py",
+                    b"def main():\n print('Omfg 0.1.3')\n return 0\n",
                 ),
             ):
                 info = tarfile.TarInfo(name)
                 info.size = len(content)
                 bundle.addfile(info, io.BytesIO(content))
             if unsafe_link:
-                link = tarfile.TarInfo("omfg-0.1.2/escape")
+                link = tarfile.TarInfo("omfg-0.1.3/escape")
                 link.type = tarfile.SYMTYPE
                 link.linkname = "/tmp/escape"
                 bundle.addfile(link)
-        named_archive = root / "omfg-0.1.2.tar.gz"
+        named_archive = root / "omfg-0.1.3.tar.gz"
         archive.rename(named_archive)
         archive = named_archive
         installer = root / "install"
         build_installer(
             Path(__file__).resolve().parents[1] / "bootstrap/install.in",
-            "0.1.2",
+            "0.1.3",
             archive,
             installer,
         )
@@ -152,7 +154,7 @@ class UiVerificationBootstrapTests(unittest.TestCase):
                 (str(launcher), argument), env=env, text=True, capture_output=True
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("Omfg 0.1.2", result.stdout)
+            self.assertIn("Omfg 0.1.3", result.stdout)
 
     def test_bootstrap_fish_detection_atomic_install_and_idempotent_path(self) -> None:
         self._require_arch_nonroot()
@@ -167,6 +169,28 @@ class UiVerificationBootstrapTests(unittest.TestCase):
             )
             self.assertEqual(first.returncode, 0, first.stderr)
             self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertEqual(
+                first.stdout,
+                "Installing omfg.\n"
+                "Downloading the release... done.\n"
+                "Verifying the release... done.\n"
+                "Installing the command... done.\n"
+                "Configuring the fish PATH... done.\n\n"
+                "The omfg command is installed.\n"
+                "Run omfg to set up the workstation.\n",
+            )
+            self.assertEqual(
+                second.stdout,
+                "Installing omfg.\n"
+                "Downloading the release... done.\n"
+                "Verifying the release... done.\n"
+                "The release is already installed.\n"
+                "The command is already available.\n"
+                "The fish PATH is already configured.\n\n"
+                "The omfg command is ready.\n"
+                "Run omfg to set up the workstation.\n",
+            )
+            self.assertNotIn("% Total", first.stdout + first.stderr)
             home = Path(env["HOME"])
             self.assertTrue((home / ".local/bin/omfg").is_file())
             self.assertTrue((home / ".local/share/omfg/current").is_symlink())
@@ -213,6 +237,24 @@ class UiVerificationBootstrapTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("unsafe or invalid", result.stderr)
             self.assertFalse((Path(env["HOME"]) / ".local/share/omfg/current").exists())
+
+    def test_bootstrap_download_failure_transcript(self) -> None:
+        self._require_arch_nonroot()
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            _, installer, env = self._bootstrap_fixture(root)
+            curl = root / "bin/curl"
+            curl.write_text("#!/bin/sh\nexit 22\n", encoding="utf-8")
+            curl.chmod(0o700)
+            result = subprocess.run(
+                ("bash", str(installer)), env=env, text=True, capture_output=True
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(
+                result.stdout,
+                "Installing omfg.\nDownloading the release... failed.\n",
+            )
+            self.assertEqual(result.stderr, "omfg installer: release download failed\n")
 
     def test_bootstrap_rejects_tampered_archive(self) -> None:
         self._require_arch_nonroot()

@@ -24,8 +24,12 @@ class PacmanManager:
             log_path=log_path,
         )
 
-    def full_update(self) -> None:
-        self.runner.run(self._command(("sudo", "pacman", "-Syu", "--noconfirm", "--needed"), ()))
+    def full_update(self) -> bool:
+        result = self.runner.run(
+            self._command(("sudo", "pacman", "-Syu", "--noconfirm", "--needed"), ())
+        )
+        combined = (result.stdout + result.stderr).lower()
+        return "there is nothing to do" not in combined
 
     def install(self, packages: Iterable[str]) -> None:
         names = tuple(sorted(set(packages)))
@@ -161,17 +165,19 @@ class FlatpakManager:
     def __init__(self, runner: CommandRunner) -> None:
         self.runner = runner
 
-    def ensure_flathub(self) -> None:
+    def ensure_flathub(self) -> bool:
         present = self.runner.run(
             Command(("flatpak", "remotes", "--user", "--columns=name"), mutate=False), check=False
         )
-        if "flathub" not in present.stdout.split():
+        changed = "flathub" not in present.stdout.split()
+        if changed:
             self.runner.run(
                 Command(
                     ("flatpak", "remote-add", "--user", "--if-not-exists", "flathub", self.REMOTE)
                 )
             )
         self.runner.run(Command(("flatpak", "update", "--user", "--appstream", "--noninteractive")))
+        return changed
 
     def install(self, applications: Iterable[str]) -> None:
         names = tuple(sorted(set(applications)))

@@ -6,7 +6,7 @@ ORDER = tuple(Capability)
 PREREQUISITES: dict[Capability, set[Capability]] = {
     Capability.APPS: {Capability.DEPS},
     Capability.FLATHUB: {Capability.FLATPAK},
-    Capability.GITHUB: {Capability.DEPS},
+    Capability.GITHUB: {Capability.DEPS, Capability.GIT},
     Capability.SSH: {Capability.GITHUB, Capability.GIT},
     Capability.CODEX: {Capability.DEPS, Capability.SHELL},
 }
