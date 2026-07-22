@@ -51,6 +51,8 @@ class RealStatusIntegrationTests(unittest.TestCase):
         terminal = Terminal(
             input_fn=Mock(side_effect=AssertionError("status prompted")), output=lines.append
         )
+        system_release = home.parent / "os-release"
+        system_release.write_text("ID=arch\n", encoding="utf-8")
         with patch.dict(os.environ, {"PATH": str(path), "HOME": str(home)}, clear=False):
             code = StatusWorkflow(
                 self.plan(),
@@ -58,6 +60,7 @@ class RealStatusIntegrationTests(unittest.TestCase):
                 terminal,
                 runner=runner,
                 target_shell=self.shell(),
+                system_release=system_release,
             ).run()
         return code, lines, runner
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from omfg.config.shell import ShellInfo
 from omfg.execution import Command, CommandResult, CommandRunner
 from omfg.models import Plan, RunOptions
@@ -23,12 +25,14 @@ class StatusWorkflow:
         *,
         runner: CommandRunner | None = None,
         target_shell: ShellInfo | None = None,
+        system_release: Path = Path("/etc/os-release"),
     ) -> None:
         self.plan = plan
         self.options = options
         self.terminal = terminal
         self.runner = runner or ReadOnlyRunner(verbose=options.verbose, output=terminal.output)
         self.target_shell = target_shell
+        self.system_release = system_release
 
     def run(self) -> int:
         workflow = Workflow(
@@ -37,6 +41,7 @@ class StatusWorkflow:
             self.terminal,
             runner=self.runner,
             target_shell=self.target_shell,
+            system_release=self.system_release,
         )
         self.terminal.section("Status")
         try:

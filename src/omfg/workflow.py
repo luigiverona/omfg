@@ -61,6 +61,7 @@ class Workflow:
         *,
         runner: CommandRunner | None = None,
         target_shell: ShellInfo | None = None,
+        system_release: Path = Path("/etc/os-release"),
     ) -> None:
         self.plan = plan
         self.options = options
@@ -71,6 +72,7 @@ class Workflow:
             output=terminal.output,
         )
         self.target_shell = target_shell
+        self.system_release = system_release
         self.progress = WorkflowProgress(())
         self._pending_before: tuple[Package, ...] = ()
         self._pending_after_update: tuple[Package, ...] = ()
@@ -537,7 +539,10 @@ class Workflow:
     def verification_results(self, *, read_only: bool = False) -> list[CheckResult]:
         verifier = Verifier(self.runner, self.options.home)
         capabilities = self._capabilities()
-        results = [verifier.system(), *(verifier.package(p) for p in self.plan.packages)]
+        results = [
+            verifier.system(self.system_release),
+            *(verifier.package(p) for p in self.plan.packages),
+        ]
         if Capability.FLATHUB in capabilities:
             results.append(verifier.flathub())
         if Capability.GIT in capabilities:

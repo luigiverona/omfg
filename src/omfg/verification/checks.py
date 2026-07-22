@@ -22,8 +22,8 @@ class Verifier:
         self.runner = runner
         self.home = home
 
-    def system(self) -> CheckResult:
-        os_release = Path("/etc/os-release").read_text(encoding="utf-8")
+    def system(self, os_release_path: Path = Path("/etc/os-release")) -> CheckResult:
+        os_release = os_release_path.read_text(encoding="utf-8")
         good = "ID=arch" in os_release and platform.machine() == "x86_64"
         return CheckResult("supported system", good, "Arch Linux x86_64 required")
 
