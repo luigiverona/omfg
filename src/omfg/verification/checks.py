@@ -49,8 +49,11 @@ class Verifier:
         )
 
     def flathub(self) -> CheckResult:
-        result = self.runner.run(
-            Command(("flatpak", "remotes", "--user", "--columns=name"), mutate=False),
-            check=False,
-        )
+        try:
+            result = self.runner.run(
+                Command(("flatpak", "remotes", "--user", "--columns=name"), mutate=False),
+                check=False,
+            )
+        except FileNotFoundError:
+            return CheckResult("Flathub remote", False, "Flatpak is not installed")
         return CheckResult("Flathub remote", "flathub" in result.stdout.split(), "missing")

@@ -89,9 +89,38 @@ class SSHManager:
             Command(("gh", "ssh-key", "add", str(self.key.with_suffix(".pub")), "--title", title))
         )
 
-    def verify(self) -> bool:
+    def verify(self, *, read_only: bool = False) -> bool:
+        argv: tuple[str, ...] = ("ssh", "-T", "-o", "BatchMode=yes", "git@github.com")
+        if read_only:
+            argv = (
+                "ssh",
+                "-T",
+                "-F",
+                "/dev/null",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "StrictHostKeyChecking=yes",
+                "-o",
+                "UpdateHostKeys=no",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPersist=no",
+                "-o",
+                "ControlPath=none",
+                "-o",
+                "PermitLocalCommand=no",
+                "-o",
+                "IdentitiesOnly=yes",
+                "-o",
+                f"UserKnownHostsFile={self.ssh_dir / 'known_hosts'}",
+                "-i",
+                str(self.key),
+                "git@github.com",
+            )
         result = self.runner.run(
-            Command(("ssh", "-T", "-o", "BatchMode=yes", "git@github.com"), mutate=False),
+            Command(argv, mutate=False),
             check=False,
         )
         return result.returncode == 1 and "successfully authenticated" in (

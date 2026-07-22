@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from omfg.cli import main
 from omfg.execution import Command
 from omfg.models import Capability, Plan, RunOptions
 from omfg.status import ReadOnlyRunner, StatusWorkflow
@@ -65,3 +68,12 @@ class StatusTests(unittest.TestCase):
             ).run()
         self.assertEqual(status, 1)
         self.assertEqual(self.lines[-1], "Workstation is not ready.")
+
+    def test_setup_interruption_keeps_setup_specific_message(self) -> None:
+        with patch.object(Workflow, "run", side_effect=KeyboardInterrupt):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = main(["setup", "--dry-run"])
+        self.assertEqual(code, 130)
+        rendered = output.getvalue().splitlines()
+        self.assertEqual(rendered[-2:], ["Setup paused.", "Run omfg again to continue."])

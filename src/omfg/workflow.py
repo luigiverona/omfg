@@ -3,6 +3,8 @@ from __future__ import annotations
 import getpass
 import os
 import shutil
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 from omfg.config.codex import CodexManager
@@ -515,7 +517,24 @@ class Workflow:
         self.terminal.output("All verification checks passed.")
         self._finish(WorkflowStage.VERIFICATION)
 
-    def verification_results(self) -> list[CheckResult]:
+    @staticmethod
+    def _availability_check(
+        name: str,
+        operation: Callable[[], bool],
+        reason: str,
+        unavailable: str,
+        *,
+        tolerate_missing: bool,
+    ) -> CheckResult:
+        try:
+            passed = operation()
+        except FileNotFoundError:
+            if not tolerate_missing:
+                raise
+            return CheckResult(name, False, unavailable)
+        return CheckResult(name, passed, reason)
+
+    def verification_results(self, *, read_only: bool = False) -> list[CheckResult]:
         verifier = Verifier(self.runner, self.options.home)
         capabilities = self._capabilities()
         results = [verifier.system(), *(verifier.package(p) for p in self.plan.packages)]
@@ -523,36 +542,56 @@ class Workflow:
             results.append(verifier.flathub())
         if Capability.GIT in capabilities:
             results.append(
-                CheckResult(
+                self._availability_check(
                     "Git identity",
-                    GitConfigurator(self.runner).verify(),
+                    GitConfigurator(self.runner).verify,
                     "identity or default branch missing",
+                    "Git is not installed",
+                    tolerate_missing=read_only,
                 )
             )
         if Capability.GITHUB in capabilities:
             github = GitHubConfigurator(self.runner)
             results.append(
-                CheckResult("GitHub authentication", github.authenticated(), "not authenticated")
+                self._availability_check(
+                    "GitHub authentication",
+                    github.authenticated,
+                    "not authenticated",
+                    "GitHub CLI is not installed",
+                    tolerate_missing=read_only,
+                )
             )
             results.append(
-                CheckResult(
-                    "GitHub SSH protocol", github.protocol() == "ssh", "protocol is not SSH"
+                self._availability_check(
+                    "GitHub SSH protocol",
+                    lambda: github.protocol() == "ssh",
+                    "protocol is not SSH",
+                    "GitHub CLI is not installed",
+                    tolerate_missing=read_only,
                 )
             )
         if Capability.SSH in capabilities:
             results.append(
-                CheckResult(
+                self._availability_check(
                     "SSH connection",
-                    SSHManager(self.runner, self.options.home).verify(),
+                    lambda: SSHManager(self.runner, self.options.home).verify(read_only=read_only),
                     "connection failed",
+                    "OpenSSH client is not installed",
+                    tolerate_missing=read_only,
                 )
             )
         if Capability.CODEX in capabilities:
             codex = CodexManager(self.runner, self.options.home)
-            results.extend(
-                CheckResult(f"codex-{n}", codex.verified(n), "profile not authenticated")
-                for n in ("01", "02")
-            )
+            for number in ("01", "02"):
+                results.append(
+                    self._availability_check(
+                        f"codex-{number}",
+                        partial(codex.verified, number),
+                        "profile not authenticated",
+                        "managed Codex executable is not available",
+                        tolerate_missing=read_only,
+                    )
+                )
             results.append(
                 CheckResult(
                     "Codex profile isolation",

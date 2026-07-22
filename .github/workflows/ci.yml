@@ -55,3 +55,20 @@ jobs:
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg apps browser --dry-run"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg github --dry-run"
       - run: su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg codex --dry-run"
+      - name: Verify incomplete status is read-only
+        run: |
+          find /home/omfg-ci -xdev -printf '%P\t%m\t%s\t%T@\n' | sort > /tmp/status-before
+          set +e
+          su omfg-ci -c "/tmp/omfg-ci-venv/bin/omfg status" > /tmp/status-output 2>&1
+          status=$?
+          set -e
+          test "$status" -eq 1
+          grep -Fx 'Status' /tmp/status-output
+          grep -Fx 'Workstation is not ready.' /tmp/status-output
+          ! grep -F 'Traceback' /tmp/status-output
+          ! grep -F '[sudo]' /tmp/status-output
+          ! grep -Fx 'Plan' /tmp/status-output
+          ! grep -F 'Continue?' /tmp/status-output
+          ! grep -F 'Setup complete.' /tmp/status-output
+          find /home/omfg-ci -xdev -printf '%P\t%m\t%s\t%T@\n' | sort > /tmp/status-after
+          cmp /tmp/status-before /tmp/status-after

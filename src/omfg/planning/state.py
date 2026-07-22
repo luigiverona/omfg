@@ -13,20 +13,26 @@ class StateInspector:
 
     def package_installed(self, package: Package) -> bool:
         if package.source in {Source.PACMAN, Source.AUR}:
-            return (
-                self.runner.run(
-                    Command(("pacman", "-Q", package.identifier), mutate=False), check=False
-                ).returncode
-                == 0
-            )
+            try:
+                return (
+                    self.runner.run(
+                        Command(("pacman", "-Q", package.identifier), mutate=False), check=False
+                    ).returncode
+                    == 0
+                )
+            except FileNotFoundError:
+                return False
         if package.source is Source.FLATPAK:
-            return (
-                self.runner.run(
-                    Command(("flatpak", "info", "--user", package.identifier), mutate=False),
-                    check=False,
-                ).returncode
-                == 0
-            )
+            try:
+                return (
+                    self.runner.run(
+                        Command(("flatpak", "info", "--user", package.identifier), mutate=False),
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+            except FileNotFoundError:
+                return False
         if package.source is Source.UPSTREAM and package.identifier == "codex":
             executable = self.home / ".local/share/omfg/bin/codex"
             if not executable.is_file():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from omfg.config.shell import ShellInfo
 from omfg.execution import Command, CommandResult, CommandRunner
 from omfg.models import Plan, RunOptions
 from omfg.ui import Terminal
@@ -21,29 +22,33 @@ class StatusWorkflow:
         terminal: Terminal,
         *,
         runner: CommandRunner | None = None,
+        target_shell: ShellInfo | None = None,
     ) -> None:
         self.plan = plan
         self.options = options
         self.terminal = terminal
         self.runner = runner or ReadOnlyRunner(verbose=options.verbose, output=terminal.output)
+        self.target_shell = target_shell
 
     def run(self) -> int:
-        workflow = Workflow(self.plan, self.options, self.terminal, runner=self.runner)
+        workflow = Workflow(
+            self.plan,
+            self.options,
+            self.terminal,
+            runner=self.runner,
+            target_shell=self.target_shell,
+        )
         self.terminal.section("Status")
         try:
-            results = workflow.verification_results()
-        except (OSError, RuntimeError) as exc:
-            self.terminal.output(f"Status check failed: {exc}.")
-            self.terminal.output("")
-            self.terminal.output("Workstation is not ready.")
-            return 1
+            results = workflow.verification_results(read_only=True)
+        except KeyboardInterrupt:
+            self.terminal.output("Status check paused.")
+            self.terminal.output("Run omfg status again to continue.")
+            return 130
         failures = [result for result in results if not result.passed]
         if failures:
-            visible = failures if self.options.verbose else failures[:5]
-            for result in visible:
+            for result in failures:
                 self.terminal.output(f"{result.name}: {result.reason}.")
-            if len(visible) < len(failures):
-                self.terminal.output(f"{len(failures) - len(visible)} additional checks failed.")
             self.terminal.output("")
             self.terminal.output("Workstation is not ready.")
             return 1
