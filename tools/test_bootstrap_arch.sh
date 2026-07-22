@@ -62,6 +62,14 @@ install_twice() {
   assert_common_install "${user}"
 }
 
+assert_unmodified_shell_file() {
+  local path="$1"
+  if [[ -f ${path} ]] && grep -Eq '(Added by omfg|\.local/bin)' "${path}"; then
+    printf 'unrelated shell file was modified: %s\n' "${path}" >&2
+    exit 1
+  fi
+}
+
 useradd --create-home --shell /usr/bin/fish omfg-fish
 useradd --create-home --shell /bin/bash omfg-bash
 useradd --create-home --shell /usr/bin/zsh omfg-zsh
@@ -71,19 +79,22 @@ install_twice omfg-fish
 # Compare the literal line written by the installer.
 # shellcheck disable=SC2016
 [[ $(grep -Fxc 'fish_add_path --global --move $HOME/.local/bin' /home/omfg-fish/.config/fish/conf.d/omfg.fish || true) -eq 1 ]] || { printf 'fish PATH entry is missing or duplicated\n' >&2; exit 1; }
-[[ ! -e /home/omfg-fish/.bashrc && ! -e /home/omfg-fish/.zshrc ]]
+assert_unmodified_shell_file /home/omfg-fish/.bashrc
+assert_unmodified_shell_file /home/omfg-fish/.zshrc
 
 install_twice omfg-bash
 # Compare the literal line written by the installer.
 # shellcheck disable=SC2016
 [[ $(grep -Fxc 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac' /home/omfg-bash/.bashrc || true) -eq 1 ]] || { printf 'Bash PATH entry is missing or duplicated\n' >&2; exit 1; }
-[[ ! -e /home/omfg-bash/.config/fish/conf.d/omfg.fish && ! -e /home/omfg-bash/.zshrc ]]
+assert_unmodified_shell_file /home/omfg-bash/.config/fish/conf.d/omfg.fish
+assert_unmodified_shell_file /home/omfg-bash/.zshrc
 
 install_twice omfg-zsh
 # Compare the literal line written by the installer.
 # shellcheck disable=SC2016
 [[ $(grep -Fxc 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac' /home/omfg-zsh/.zshrc || true) -eq 1 ]] || { printf 'Zsh PATH entry is missing or duplicated\n' >&2; exit 1; }
-[[ ! -e /home/omfg-zsh/.config/fish/conf.d/omfg.fish && ! -e /home/omfg-zsh/.bashrc ]]
+assert_unmodified_shell_file /home/omfg-zsh/.config/fish/conf.d/omfg.fish
+assert_unmodified_shell_file /home/omfg-zsh/.bashrc
 
 if runuser -u omfg-bad-checksum -- env HOME=/home/omfg-bad-checksum \
   OMFG_RELEASE_BASE="${RELEASE_BASE}" OMFG_RELEASE_SHA256="$(printf '0%.0s' {1..64})" \
