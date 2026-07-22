@@ -111,4 +111,18 @@ omfg --version
 omfg --dry-run
 ```
 
+Release artifacts are explicit runtime archives rather than GitHub-generated source archives.
+From a clean tagged checkout, maintainers build and independently validate one with:
+
+```bash
+python tools/build_release.py --tag v0.1.0
+python tools/validate_release.py dist/omfg-0.1.0.tar.gz
+```
+
+The builder selects only tracked runtime files and normalizes archive ordering, ownership,
+permissions, timestamps, and gzip metadata. `dist/` remains ignored. The release workflow builds
+twice from independent clean checkouts, verifies identical SHA-256 values, publishes a complete
+draft, verifies uploaded bytes, and only then publishes it. Pages deployment downloads those
+published assets; it does not rebuild them.
+
 Normal output is intentionally plain: no symbols, boxes, stage numbers, package-manager diffs, or raw package-manager output. `--verbose` exposes operational detail but redacts configured secrets. Atomic writes protect launchers and owned configuration blocks from partial replacement.

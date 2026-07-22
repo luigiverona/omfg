@@ -24,6 +24,8 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy src
+      - run: mypy tools
+      - run: python tools/build_release.py --tag v0.1.0 --check-only
       - run: git diff --check
 
   shell:

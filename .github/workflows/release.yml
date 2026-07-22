@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated release tag to validate or publish
+        required: true
+        default: v0.1.0
+
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate-build:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    permissions:
+      contents: read
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.tag }}
+      - name: Install validation dependencies
+        run: pacman -Syu --noconfirm python git shellcheck sudo curl flatpak
+      - name: Verify annotated tag and main ancestry
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          test "$(git cat-file -t "$RELEASE_TAG")" = tag
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$RELEASE_TAG^{commit}" origin/main
+      - name: Create clean independent checkouts
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          git clone --no-hardlinks "$GITHUB_WORKSPACE" /tmp/omfg-build-one
+          git clone --no-hardlinks "$GITHUB_WORKSPACE" /tmp/omfg-build-two
+          git -C /tmp/omfg-build-one checkout --detach "$RELEASE_TAG"
+          git -C /tmp/omfg-build-two checkout --detach "$RELEASE_TAG"
+          useradd --create-home omfg-ci
+          chown -R omfg-ci:omfg-ci /tmp/omfg-build-one /tmp/omfg-build-two
+      - name: Run complete validation as an unprivileged user
+        run: |
+          su omfg-ci -c "python -m venv /tmp/omfg-release-venv"
+          su omfg-ci -c "/tmp/omfg-release-venv/bin/python -m pip install --disable-pip-version-check -e /tmp/omfg-build-one ruff mypy"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/python -m compileall src tests"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/python -m unittest discover"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/ruff check ."
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/ruff format --check ."
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/mypy src"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/mypy tools"
+          bash -n /tmp/omfg-build-one/bootstrap/install
+          shellcheck /tmp/omfg-build-one/bootstrap/install
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --help"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --version"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --dry-run"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --app browser --dry-run"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --github --dry-run"
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/omfg --codex --dry-run"
+          git -C /tmp/omfg-build-one diff --check
+      - name: Build and validate twice
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/python tools/build_release.py --tag '$RELEASE_TAG'"
+          su omfg-ci -c "cd /tmp/omfg-build-two && python tools/build_release.py --tag '$RELEASE_TAG'"
+          cmp /tmp/omfg-build-one/dist/omfg-*.tar.gz /tmp/omfg-build-two/dist/omfg-*.tar.gz
+          cmp /tmp/omfg-build-one/dist/omfg-*.tar.gz.sha256 /tmp/omfg-build-two/dist/omfg-*.tar.gz.sha256
+          cmp /tmp/omfg-build-one/dist/SHA256SUMS /tmp/omfg-build-two/dist/SHA256SUMS
+          su omfg-ci -c "cd /tmp/omfg-build-one && /tmp/omfg-release-venv/bin/python tools/validate_release.py dist/omfg-*.tar.gz"
+          su omfg-ci -c "cd /tmp/omfg-build-two && python tools/validate_release.py dist/omfg-*.tar.gz"
+      # actions/upload-artifact v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-assets-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          path: /tmp/omfg-build-one/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: validate-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.tag }}
+      # actions/download-artifact v8.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-assets-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          path: dist
+      - name: Attest release assets
+        # actions/attest-build-provenance v4.1.1
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
+        with:
+          subject-path: dist/*
+      - name: Create or verify complete draft
+        run: |
+          if existing=$(gh release view "$RELEASE_TAG" --json isDraft,isImmutable 2>/dev/null); then
+            if [ "$(jq -r .isDraft <<<"$existing")" = false ]; then
+              test "$(jq -r .isImmutable <<<"$existing")" = true
+              echo reuse=true >> "$GITHUB_ENV"
+              exit 0
+            fi
+            gh release delete "$RELEASE_TAG" --yes
+          fi
+          gh release create "$RELEASE_TAG" \
+            --verify-tag \
+            --draft \
+            --title "Omfg ${RELEASE_TAG#v}" \
+            --notes-file "docs/releases/$RELEASE_TAG.md" \
+            dist/omfg-*.tar.gz \
+            dist/omfg-*.tar.gz.sha256 \
+            dist/SHA256SUMS
+          echo reuse=false >> "$GITHUB_ENV"
+      - name: Download and compare uploaded assets
+        run: |
+          mkdir downloaded
+          gh release download "$RELEASE_TAG" --dir downloaded
+          test "$(find downloaded -maxdepth 1 -type f | wc -l)" -eq 3
+          for asset in dist/*; do cmp "$asset" "downloaded/$(basename "$asset")"; done
+          (cd downloaded && sha256sum --check SHA256SUMS)
+          (cd downloaded && sha256sum --check omfg-*.tar.gz.sha256)
+      - name: Publish verified draft
+        if: env.reuse != 'true'
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest
+      - name: Verify published immutable release
+        run: |
+          release=$(gh release view "$RELEASE_TAG" --json tagName,targetCommitish,isDraft,isImmutable,assets,url)
+          test "$(jq -r .tagName <<<"$release")" = "$RELEASE_TAG"
+          test "$(jq -r .isDraft <<<"$release")" = false
+          test "$(jq -r .isImmutable <<<"$release")" = true
+          test "$(jq '.assets | length' <<<"$release")" -eq 3
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          gh release verify "$RELEASE_TAG"
+          for asset in dist/*; do gh release verify-asset "$RELEASE_TAG" "$asset"; done
