@@ -4,9 +4,10 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from omfg.config.codex import CodexManager
-from omfg.errors import ValidationError
+from omfg.errors import CommandError, ValidationError
 from omfg.execution import Command, CommandResult
 from tests.helpers import FakeRunner
 
@@ -24,6 +25,11 @@ class InstallingRunner(FakeRunner):
             output = Path(command.argv[command.argv.index("-o") + 1])
             output.write_bytes(self.INSTALLER)
         if command.argv[0] == "sh":
+            isolated_home = Path(command.env["HOME"])
+            shell = command.env["SHELL"]
+            profile = isolated_home / (".bashrc" if shell.endswith("bash") else ".profile")
+            profile.parent.mkdir(parents=True, exist_ok=True)
+            profile.write_text("upstream PATH mutation\n", encoding="utf-8")
             self.shared.parent.mkdir(parents=True, exist_ok=True)
             self.shared.write_text("binary", encoding="utf-8")
             self.shared.chmod(0o700)
@@ -85,22 +91,74 @@ class CodexTests(unittest.TestCase):
             runner = InstallingRunner(manager.shared_bin)
             manager.runner = runner  # type: ignore[assignment]
             manager.INSTALLER_SHA256 = hashlib.sha256(runner.INSTALLER).hexdigest()
+            startup_files = [
+                home / ".bashrc",
+                home / ".bash_profile",
+                home / ".zshrc",
+                home / ".zprofile",
+                home / ".config/fish/conf.d/omfg.fish",
+            ]
+            for path in startup_files:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"preserve {path.name}\n", encoding="utf-8")
+            before = {path: path.read_bytes() for path in startup_files}
             manager.install()
             installer_command = next(
                 command for command in runner.commands if command.argv[0] == "sh"
             )
-            self.assertEqual(
-                installer_command.env["CODEX_HOME"], str(manager.state_root / "installer")
-            )
+            installer_state = manager.state_root / "installer"
+            self.assertEqual(installer_command.env["CODEX_HOME"], str(installer_state))
             self.assertEqual(
                 installer_command.env["CODEX_INSTALL_DIR"], str(manager.shared_bin.parent)
             )
             self.assertEqual(installer_command.env["CODEX_RELEASE"], "latest")
-            self.assertTrue(
-                installer_command.env["PATH"].startswith(str(manager.shared_bin.parent))
+            self.assertEqual(
+                installer_command.env["HOME"], str(installer_state / "environment-home")
             )
+            self.assertEqual(installer_command.env["SHELL"], "/bin/sh")
+            self.assertTrue(installer_command.replace_env)
+            self.assertNotIn("OMFG_POISON", installer_command.env)
+            self.assertEqual(installer_state.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((installer_state / "environment-home").stat().st_mode & 0o777, 0o700)
+            self.assertEqual(before, {path: path.read_bytes() for path in startup_files})
+            self.assertTrue((installer_state / "environment-home/.profile").is_file())
             self.assertFalse((home / ".codex").exists())
             self.assertFalse((home / ".local/bin/codex").exists())
+
+    def test_fish_bash_and_zsh_files_are_untouched_by_installer(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            workspace = home / "workspace"
+            (workspace / "downloads").mkdir(parents=True)
+            manager = CodexManager(FakeRunner(), home, workspace)  # type: ignore[arg-type]
+            runner = InstallingRunner(manager.shared_bin)
+            manager.runner = runner  # type: ignore[assignment]
+            manager.INSTALLER_SHA256 = hashlib.sha256(runner.INSTALLER).hexdigest()
+            watched = (
+                home / ".bashrc",
+                home / ".bash_profile",
+                home / ".zshrc",
+                home / ".zprofile",
+                home / ".config/fish/config.fish",
+            )
+            with patch.dict("os.environ", {"SHELL": "/usr/bin/fish", "OMFG_POISON": "yes"}):
+                manager.install()
+            self.assertFalse(any(path.exists() for path in watched))
+
+    def test_valid_managed_binary_is_reusable(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            manager = CodexManager(FakeRunner(), home)  # type: ignore[arg-type]
+            manager.shared_bin.parent.mkdir(parents=True)
+            manager.shared_bin.write_text("binary", encoding="utf-8")
+            self.assertTrue(manager.executable_valid())
+
+    @patch("omfg.config.codex.shutil.which", return_value="/usr/bin/codex")
+    def test_unrelated_system_codex_is_detected_without_changes(self, _: object) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manager = CodexManager(FakeRunner(), Path(raw))  # type: ignore[arg-type]
+            self.assertEqual(manager.unrelated_codex(), Path("/usr/bin/codex"))
+            self.assertFalse(manager.shared_bin.exists())
 
     def test_failed_artifact_verification_aborts_install(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -130,6 +188,18 @@ class CodexTests(unittest.TestCase):
             self.assertIn((str(manager.bin_dir / "codex-02"), "login"), argv)
             self.assertIn((str(manager.bin_dir / "codex-01"), "login", "status"), argv)
             self.assertIn((str(manager.bin_dir / "codex-02"), "login", "status"), argv)
+
+    def test_cancelled_profile_login_is_reported_cleanly(self) -> None:
+        class CancellingRunner(FakeRunner):
+            def run(self, command: Command, *, check: bool = True) -> CommandResult:
+                if command.argv[-1] == "login":
+                    raise CommandError("codex", "authenticate", "exit status 130", 130)
+                return super().run(command, check=check)
+
+        with tempfile.TemporaryDirectory() as raw:
+            manager = CodexManager(CancellingRunner(), Path(raw))  # type: ignore[arg-type]
+            with self.assertRaisesRegex(ValidationError, "cancelled or did not complete"):
+                manager.authenticate("02")
 
     def test_insecure_credential_permissions_fail_verification(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

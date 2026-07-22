@@ -28,7 +28,15 @@ class StateInspector:
                 == 0
             )
         if package.source is Source.UPSTREAM and package.identifier == "codex":
-            return (self.home / ".local/share/omfg/bin/codex").is_file()
+            executable = self.home / ".local/share/omfg/bin/codex"
+            if not executable.is_file():
+                return False
+            return (
+                self.runner.run(
+                    Command((str(executable), "--version"), mutate=False), check=False
+                ).returncode
+                == 0
+            )
         return False
 
     def pending(self, packages: tuple[Package, ...]) -> tuple[Package, ...]:

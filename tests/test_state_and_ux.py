@@ -8,7 +8,7 @@ from unittest.mock import patch
 from omfg.catalog import load_catalog
 from omfg.config.codex import CodexManager
 from omfg.config.shell import ShellInfo, configure_path
-from omfg.execution import CommandResult
+from omfg.execution import Command, CommandResult
 from omfg.models import Capability, Package, Plan, RunOptions, Source
 from omfg.planning import StateInspector
 from omfg.ui import Terminal
@@ -87,6 +87,17 @@ class StateAndUxTests(unittest.TestCase):
             manager = CodexManager(FakeRunner(), home)  # type: ignore[arg-type]
             self.assertFalse(manager.profiles_distinct())
 
+    def test_invalid_codex_executable_remains_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            codex = next(package for package in self.packages if package.identifier == "codex")
+            shared = home / ".local/share/omfg/bin/codex"
+            shared.parent.mkdir(parents=True)
+            shared.write_text("broken", encoding="utf-8")
+            argv = (str(shared), "--version")
+            runner = FakeRunner({argv: CommandResult(argv, 1, "", "not executable")})
+            self.assertEqual(StateInspector(runner, home).pending((codex,)), (codex,))  # type: ignore[arg-type]
+
     def test_launchers_present_but_one_profile_missing(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             home = Path(raw)
@@ -96,6 +107,68 @@ class StateAndUxTests(unittest.TestCase):
             manager.create_profiles()
             (manager.state_root / "02").rename(manager.state_root / "missing-02")
             self.assertFalse(manager.verified("02"))
+
+    def test_codex_rerun_reuses_binary_and_skips_authenticated_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            workspace = home / "workspace"
+            workspace.mkdir()
+            runner = FakeRunner()
+            manager = CodexManager(runner, home)  # type: ignore[arg-type]
+            manager.shared_bin.parent.mkdir(parents=True)
+            manager.shared_bin.write_text("binary", encoding="utf-8")
+            manager.create_profiles()
+            workflow = Workflow(
+                Plan((Capability.CODEX,), (), (), (), ()),
+                RunOptions(home=home),
+                Terminal(output=lambda _: None),
+                runner=runner,  # type: ignore[arg-type]
+            )
+            workflow._codex(workspace)
+            argv = [command.argv for command in runner.commands]
+            self.assertFalse(any(command[0] == "curl" for command in argv))
+            self.assertFalse(any(command[-1] == "login" for command in argv))
+
+    def test_codex_profiles_are_checked_and_authenticated_independently(self) -> None:
+        class ProfileRunner(FakeRunner):
+            def __init__(self) -> None:
+                super().__init__()
+                self.profile_two_authenticated = False
+
+            def run(self, command: Command, *, check: bool = True) -> CommandResult:
+                self.commands.append(command)
+                argv = command.argv
+                if argv[-2:] == ("login", "status"):
+                    if "codex-01" in argv[0] or self.profile_two_authenticated:
+                        return CommandResult(argv, 0, "", "")
+                    return CommandResult(argv, 1, "", "not logged in")
+                if argv[-1:] == ("login",):
+                    self.profile_two_authenticated = True
+                return CommandResult(argv, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            workspace = home / "workspace"
+            workspace.mkdir()
+            runner = ProfileRunner()
+            manager = CodexManager(runner, home)  # type: ignore[arg-type]
+            manager.shared_bin.parent.mkdir(parents=True)
+            manager.shared_bin.write_text("binary", encoding="utf-8")
+            manager.create_profiles()
+            output: list[str] = []
+            workflow = Workflow(
+                Plan((Capability.CODEX,), (), (), (), ()),
+                RunOptions(home=home),
+                Terminal(output=output.append),
+                runner=runner,  # type: ignore[arg-type]
+            )
+            workflow._codex(workspace)
+            login_commands = [
+                command.argv for command in runner.commands if command.argv[-1:] == ("login",)
+            ]
+            self.assertEqual(login_commands, [(str(manager.bin_dir / "codex-02"), "login")])
+            self.assertIn("codex-01 already authenticated", output)
+            self.assertIn("codex-02 authenticated", output)
 
     def test_complete_workstation_package_inventory_has_no_pending_items(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

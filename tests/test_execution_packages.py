@@ -19,6 +19,17 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(len(runner.history), 1)
 
+    def test_command_can_replace_inherited_environment(self) -> None:
+        result = CommandRunner().run(
+            Command(
+                (sys.executable, "-c", "import os; print(os.environ.get('OMFG_POISON', ''))"),
+                env={"PATH": "/usr/bin:/bin"},
+                replace_env=True,
+                mutate=False,
+            )
+        )
+        self.assertEqual(result.stdout, "\n")
+
     def test_redaction(self) -> None:
         self.assertEqual(CommandRunner.redact("token=secret", ("secret",)), "token=[REDACTED]")
 

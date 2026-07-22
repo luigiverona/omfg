@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 from pathlib import Path
 
 from omfg.config.files import atomic_write
-from omfg.errors import ValidationError
+from omfg.errors import CommandError, ValidationError
 from omfg.execution import Command, CommandRunner
 
 
@@ -27,17 +28,36 @@ class CodexManager:
         if self.state_root.is_symlink() or self.shared_bin.parent.is_symlink():
             raise OSError("refusing Codex installation through symbolic state directories")
         self.shared_bin.parent.mkdir(parents=True, exist_ok=True)
+        installer_state = self.state_root / "installer"
+        isolated_home = installer_state / "environment-home"
+        for directory in (installer_state, isolated_home):
+            if directory.is_symlink():
+                raise OSError(f"refusing symbolic Codex installer directory: {directory}")
+            directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+            directory.chmod(0o700)
         env = {
             "CODEX_INSTALL_DIR": str(self.shared_bin.parent),
-            "CODEX_HOME": str(self.state_root / "installer"),
+            "CODEX_HOME": str(installer_state),
             "CODEX_RELEASE": "latest",
-            "HOME": str(self.home),
-            "PATH": f"{self.shared_bin.parent}:{os.environ.get('PATH', '')}",
+            "CODEX_NON_INTERACTIVE": "1",
+            "HOME": str(isolated_home),
+            "SHELL": "/bin/sh",
+            "PATH": os.defpath,
+            "LC_ALL": "C",
         }
-        (self.state_root / "installer").mkdir(parents=True, mode=0o700, exist_ok=True)
-        download_root = (
-            self.workspace / "downloads" if self.workspace else self.state_root / "installer"
-        )
+        for name in (
+            "HTTPS_PROXY",
+            "HTTP_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+            "https_proxy",
+            "http_proxy",
+            "all_proxy",
+            "no_proxy",
+        ):
+            if value := os.environ.get(name):
+                env[name] = value
+        download_root = self.workspace / "downloads" if self.workspace else installer_state
         installer = download_root / "codex-install.sh"
         self.runner.run(
             Command(
@@ -61,7 +81,7 @@ class CodexManager:
                     "verify official installer",
                     "installer checksum mismatch; omfg must audit the upstream change",
                 )
-        self.runner.run(Command(("sh", str(installer)), env={**env, "CODEX_NON_INTERACTIVE": "1"}))
+        self.runner.run(Command(("sh", str(installer)), env=env, replace_env=True))
         if not self.runner.dry_run and not self.shared_bin.is_file():
             raise ValidationError(
                 "codex",
@@ -74,6 +94,26 @@ class CodexManager:
         if version.returncode and not self.runner.dry_run:
             raise ValidationError("codex", "verify executable", "shared executable is not runnable")
         self.remove_owned_unscoped_launcher()
+
+    def executable_valid(self) -> bool:
+        if not self.shared_bin.is_file():
+            return False
+        result = self.runner.run(
+            Command((str(self.shared_bin), "--version"), mutate=False), check=False
+        )
+        return result.returncode == 0
+
+    def unrelated_codex(self) -> Path | None:
+        found = shutil.which("codex")
+        if not found:
+            return None
+        path = Path(found)
+        try:
+            if path.resolve(strict=False) == self.shared_bin.resolve(strict=False):
+                return None
+        except OSError:
+            pass
+        return path
 
     def create_profiles(self) -> None:
         for number in ("01", "02"):
@@ -102,7 +142,22 @@ class CodexManager:
         self.remove_owned_unscoped_launcher()
 
     def authenticate(self, number: str) -> None:
-        self.runner.run(Command((str(self.bin_dir / f"codex-{number}"), "login")))
+        launcher = str(self.bin_dir / f"codex-{number}")
+        try:
+            self.runner.run(
+                Command(
+                    (launcher, "login"),
+                    failure_component="codex",
+                    failure_operation=f"authenticate codex-{number}",
+                )
+            )
+        except CommandError as exc:
+            raise ValidationError(
+                "codex",
+                f"authenticate codex-{number}",
+                "sign-in was cancelled or did not complete",
+                exc.exit_code,
+            ) from exc
 
     def verified(self, number: str) -> bool:
         profile = self.state_root / number

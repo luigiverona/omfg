@@ -204,12 +204,7 @@ class Workflow:
             self.summary.components_configured += 1
         if Capability.CODEX in capabilities:
             self.terminal.section("Codex configuration")
-            self._codex(
-                workspace,
-                install_required=any(
-                    p.source is Source.UPSTREAM and p.identifier == "codex" for p in pending
-                ),
-            )
+            self._codex(workspace)
             self.summary.components_configured += 2
         if Capability.SHELL in capabilities:
             self.terminal.section("Shell configuration")
@@ -302,9 +297,12 @@ class Workflow:
             self.summary.existing_keys_preserved = len(old) - deleted_count
             self.terminal.output("Existing SSH keys preserved")
 
-    def _codex(self, workspace: Path, *, install_required: bool) -> None:
+    def _codex(self, workspace: Path) -> None:
         codex = CodexManager(self.runner, self.options.home, workspace)
-        if install_required or not codex.shared_bin.is_file():
+        unrelated = codex.unrelated_codex()
+        if unrelated is not None and self.options.verbose:
+            self.terminal.output(f"Unrelated Codex installation preserved: {unrelated}")
+        if not codex.executable_valid():
             codex.install()
         codex.create_profiles()
         for number in ("01", "02"):
@@ -314,7 +312,11 @@ class Workflow:
             self.terminal.output(f"Sign in to codex-{number}.")
             codex.authenticate(number)
             if not codex.verified(number):
-                raise RuntimeError(f"codex-{number} authentication did not verify")
+                raise ValidationError(
+                    "codex",
+                    f"authenticate codex-{number}",
+                    "sign-in was cancelled or did not complete",
+                )
             self.terminal.output(f"codex-{number} authenticated")
         self.terminal.output("Both Codex profiles verified")
 

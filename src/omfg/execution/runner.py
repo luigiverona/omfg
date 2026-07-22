@@ -16,6 +16,7 @@ class Command:
     argv: tuple[str, ...]
     cwd: Path | None = None
     env: Mapping[str, str] | None = None
+    replace_env: bool = False
     sensitive_values: tuple[str, ...] = ()
     mutate: bool = True
     failure_component: str = "command"
@@ -99,7 +100,7 @@ class CommandRunner:
             self.output("$ " + self.redact(rendered, command.sensitive_values))
         if self.dry_run and command.mutate:
             return CommandResult(command.argv, 0, "", "")
-        env = os.environ.copy()
+        env = {} if command.replace_env else os.environ.copy()
         if command.env:
             env.update(command.env)
         completed = subprocess.run(
