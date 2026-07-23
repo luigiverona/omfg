@@ -52,28 +52,20 @@ def build_site(
     text = installer.decode("utf-8")
     validate_installer(text, version, archive_digest)
     release_base = (
-        'readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-https://omfg.luigiverona.dev/releases}"'
+        'readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-'
+        'https://github.com/luigiverona/omfg/releases/download}"'
     )
     if text.count(release_base) != 1:
-        raise ValueError("installer release base is not the intended custom domain")
+        raise ValueError("installer release base is not the intended GitHub Release endpoint")
     if output.exists():
         if output.is_symlink() or not output.is_dir():
             raise ValueError("site output must be a real directory")
         shutil.rmtree(output)
-    release_dir = output / "releases" / tag
-    release_dir.mkdir(parents=True)
-    (output / "install").write_bytes(installer)
-    for name in sorted(expected_assets):
-        shutil.copyfile(assets / name, release_dir / name)
-    (output / "index.html").write_text(
-        "<!doctype html>\n"
-        '<html lang="en"><meta charset="utf-8">\n'
-        "<title>omfg</title>\n"
-        "<h1>omfg</h1>\n"
-        "<p>Arch Linux workstation setup. "
-        '<a href="https://github.com/luigiverona/omfg">Source on GitHub</a>.</p>\n',
-        encoding="utf-8",
-    )
+    output.mkdir(parents=True)
+    shutil.copyfile(installer_path, output / "install", follow_symlinks=False)
+    entries = tuple(output.rglob("*"))
+    if entries != (output / "install",) or (output / "install").is_symlink():
+        raise ValueError("Pages distribution must contain only a regular install file")
 
 
 def main() -> int:

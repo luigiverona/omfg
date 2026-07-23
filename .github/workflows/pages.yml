@@ -6,7 +6,7 @@ on:
       tag:
         description: Existing published immutable release to deploy
         required: true
-        default: v0.2.0
+        default: v0.2.1
 
 concurrency:
   group: pages
@@ -44,8 +44,12 @@ jobs:
             --assets release-assets \
             --output site \
             --skip-runtime-validation
+          test -f site/install
+          test ! -L site/install
+          test "$(find site -mindepth 1 | wc -l)" -eq 1
           cmp release-assets/install site/install
-          test "$(find site -type f | wc -l)" -eq 6
+          test ! -e site/index.html
+          test ! -e site/releases
       # actions/upload-pages-artifact v5.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:

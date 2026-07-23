@@ -13,6 +13,10 @@ DIGEST_TOKEN = "@OMFG_ARCHIVE_SHA256@"  # noqa: S105 - deterministic template ma
 VERSION_PATTERN = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 UNRESOLVED_PATTERN = re.compile(r"@[A-Z0-9_]+@")
+GITHUB_RELEASE_BASE = (
+    'readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-'
+    'https://github.com/luigiverona/omfg/releases/download}"'
+)
 
 
 def file_digest(path: Path) -> str:
@@ -56,6 +60,17 @@ def validate_installer(content: str, version: str, archive_digest: str) -> None:
         raise ValueError("generated installer must not permit a checksum override")
     if re.search(r"curl[^\n]*\.sha256", content):
         raise ValueError("generated installer must not download a checksum")
+    if content.count(GITHUB_RELEASE_BASE) != 1:
+        raise ValueError("generated installer must contain exactly one GitHub Release base")
+    forbidden = (
+        "https://omfg.luigiverona.dev",
+        "/releases/v",
+        "latest/download",
+        "releases/latest",
+        "api.github.com",
+    )
+    if any(value in content for value in forbidden):
+        raise ValueError("generated installer contains a forbidden release source")
 
 
 def render_installer(template: str, version: str, archive_digest: str) -> str:

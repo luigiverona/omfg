@@ -3,7 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly OMFG_VERSION="@OMFG_VERSION@"
-readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-https://omfg.luigiverona.dev/releases}"
+readonly RELEASE_BASE="${OMFG_RELEASE_BASE:-https://github.com/luigiverona/omfg/releases/download}"
 readonly EXPECTED_SHA256="@OMFG_ARCHIVE_SHA256@"
 
 die() { printf 'omfg installer: %s\n' "$*" >&2; exit 1; }

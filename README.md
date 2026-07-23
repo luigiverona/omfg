@@ -2,7 +2,7 @@
 
 `omfg` is a production-minded Arch Linux workstation setup tool. A plain `omfg` run validates the host, asks before changing it, performs a supported full system update, installs the declared software, configures Flatpak/Flathub, Git, GitHub SSH access, two isolated Codex profiles, the active shell path, and then independently verifies the result.
 
-Version 0.2.0 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
+Version 0.2.1 supports Arch Linux on x86-64 with fish, Bash, or Zsh. Run it as a normal user with sudo access; the program refuses to run as root.
 
 ## Installation
 
@@ -12,7 +12,7 @@ Install the current release with:
 curl -fsSL https://omfg.luigiverona.dev/install | bash
 ```
 
-The canonical installer source is [`bootstrap/install.in`](bootstrap/install.in). Release construction builds the runtime archive first and deterministically renders an immutable `install` asset containing that archive's literal SHA-256. The installer requires Python 3.11 or newer, downloads the immutable versioned archive, verifies it against the embedded digest without fetching trust metadata, rejects links, special files, and escaping archive paths, extracts it to `~/.local/share/omfg/releases/<version>`, atomically changes the `current` symlink, and creates `~/.local/bin/omfg`. It exits without running setup.
+The custom domain publishes exactly one file: `https://omfg.luigiverona.dev/install`. Immutable archives, checksum manifests, and attestations are stored only in GitHub Releases. The canonical installer source is [`bootstrap/install.in`](bootstrap/install.in). Release construction builds the runtime archive first and deterministically renders an immutable `install` asset containing that archive's literal SHA-256. The installer requires Python 3.11 or newer, downloads the archive directly from its exact immutable GitHub Release tag, verifies it against the embedded digest without fetching trust metadata, rejects links, special files, and escaping archive paths, extracts it to `~/.local/share/omfg/releases/<version>`, atomically changes the `current` symlink, and creates `~/.local/bin/omfg`. It exits without running setup.
 
 Piping an installer into a shell gives the server control of your user account and is inherently risky. To inspect it before running:
 
@@ -22,7 +22,7 @@ less install
 bash install
 ```
 
-The embedded digest binds the published installer to one runtime archive. A compromised server able to replace both files could still replace that digest, so independently compare the installer and archive with the immutable GitHub release and its artifact attestations when stronger provenance is required.
+The embedded digest binds the published installer to one runtime archive. The archive and its checksum metadata come from the immutable GitHub Release rather than the custom domain. A compromised installer endpoint could still substitute both the archive URL and digest, so independently compare the installer with the immutable GitHub release and its artifact attestations when stronger provenance is required.
 
 For development:
 
@@ -135,15 +135,15 @@ Release artifacts are explicit runtime archives rather than GitHub-generated sou
 From a clean tagged checkout, maintainers build and independently validate one with:
 
 ```bash
-python tools/build_release.py --tag v0.2.0
-python tools/validate_release.py dist/omfg-0.2.0.tar.gz
+python tools/build_release.py --tag v0.2.1
+python tools/validate_release.py dist/omfg-0.2.1.tar.gz
 ```
 
 The builder selects only tracked runtime files and normalizes archive ordering, ownership,
 permissions, timestamps, and gzip metadata. `dist/` remains ignored. The release workflow builds
 twice from independent clean checkouts, verifies identical archive and installer bytes, publishes
 a complete four-asset draft, verifies uploaded bytes, and only then publishes it. Pages deployment
-is dispatched explicitly from `main` after publication, downloads the immutable assets, and deploys
-their exact `install` file; it does not rebuild or substitute the installer.
+is dispatched explicitly from `main` after publication, validates all immutable assets, and deploys
+only their exact `install` file; it does not publish archives, checksum files, or an index page.
 
 Normal output is intentionally plain: no symbols, boxes, stage numbers, package-manager diffs, or raw package-manager output. `--verbose` exposes operational detail but redacts configured secrets. Atomic writes protect launchers and owned configuration blocks from partial replacement.

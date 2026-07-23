@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from tools.build_installer import (
     DIGEST_TOKEN,
+    GITHUB_RELEASE_BASE,
     VERSION_TOKEN,
     build_installer,
     render_installer,
@@ -31,8 +32,8 @@ from tools.validate_release import validate_archive
 
 class ReleaseToolTests(unittest.TestCase):
     def test_version_declarations_agree(self) -> None:
-        self.assertEqual(project_version(Path.cwd()), "0.2.0")
-        self.assertEqual(validate_release_contract(Path.cwd(), "v0.2.0"), "0.2.0")
+        self.assertEqual(project_version(Path.cwd()), "0.2.1")
+        self.assertEqual(validate_release_contract(Path.cwd(), "v0.2.1"), "0.2.1")
 
     def test_version_mismatch_fails(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -41,7 +42,7 @@ class ReleaseToolTests(unittest.TestCase):
             (root / "pyproject.toml").write_text(
                 '[project]\nname = "omfg"\nversion = "0.1.0"\n', encoding="utf-8"
             )
-            (root / "src/omfg/__init__.py").write_text('__version__ = "0.2.0"\n', encoding="utf-8")
+            (root / "src/omfg/__init__.py").write_text('__version__ = "0.2.1"\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "version declarations disagree"):
                 project_version(root)
 
@@ -53,10 +54,10 @@ class ReleaseToolTests(unittest.TestCase):
         ):
             first_dir = Path(first_raw)
             second_dir = Path(second_raw)
-            first, first_digest = build(root, first_dir, "v0.2.0", allow_dirty=True)
-            second, second_digest = build(root, second_dir, "v0.2.0", allow_dirty=True)
+            first, first_digest = build(root, first_dir, "v0.2.1", allow_dirty=True)
+            second, second_digest = build(root, second_dir, "v0.2.1", allow_dirty=True)
             self.assertEqual(first_digest, second_digest)
-            for name in ("omfg-0.2.0.tar.gz", "omfg-0.2.0.tar.gz.sha256", "SHA256SUMS", "install"):
+            for name in ("omfg-0.2.1.tar.gz", "omfg-0.2.1.tar.gz.sha256", "SHA256SUMS", "install"):
                 self.assertEqual((first_dir / name).read_bytes(), (second_dir / name).read_bytes())
             validated = validate_archive(
                 root,
@@ -70,13 +71,13 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertEqual((first_dir / "install").stat().st_mode & 0o777, 0o755)
             with tarfile.open(first, "r:gz") as bundle:
                 names = {member.name for member in bundle.getmembers()}
-            self.assertFalse(any(name.startswith("omfg-0.2.0/tests/") for name in names))
-            self.assertFalse(any(name.startswith("omfg-0.2.0/.github/") for name in names))
+            self.assertFalse(any(name.startswith("omfg-0.2.1/tests/") for name in names))
+            self.assertFalse(any(name.startswith("omfg-0.2.1/.github/") for name in names))
 
     def test_sha256sums_covers_archive_and_installer_only(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw)
-            archive, archive_digest = build(Path.cwd(), output, "v0.2.0", allow_dirty=True)
+            archive, archive_digest = build(Path.cwd(), output, "v0.2.1", allow_dirty=True)
             installer_digest = hashlib.sha256((output / "install").read_bytes()).hexdigest()
             self.assertEqual(
                 (output / "SHA256SUMS").read_text(encoding="ascii"),
@@ -90,18 +91,18 @@ class ReleaseToolTests(unittest.TestCase):
     def test_installer_rendering_is_deterministic_and_recomputes_archive_digest(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
-            archive = root / "omfg-0.2.0.tar.gz"
+            archive = root / "omfg-0.2.1.tar.gz"
             archive.write_bytes(b"actual archive bytes")
             template = root / "install.in"
             template.write_text(
                 f'#!/bin/sh\nreadonly OMFG_VERSION="{VERSION_TOKEN}"\n'
-                f'readonly EXPECTED_SHA256="{DIGEST_TOKEN}"\n',
+                f'{GITHUB_RELEASE_BASE}\nreadonly EXPECTED_SHA256="{DIGEST_TOKEN}"\n',
                 encoding="utf-8",
             )
             first = root / "first"
             second = root / "second"
-            first_digest = build_installer(template, "0.2.0", archive, first)
-            second_digest = build_installer(template, "0.2.0", archive, second)
+            first_digest = build_installer(template, "0.2.1", archive, first)
+            second_digest = build_installer(template, "0.2.1", archive, second)
             expected_archive = hashlib.sha256(archive.read_bytes()).hexdigest()
             self.assertEqual(first_digest, second_digest)
             self.assertEqual(first.read_bytes(), second.read_bytes())
@@ -118,21 +119,22 @@ class ReleaseToolTests(unittest.TestCase):
             validate_template(VERSION_TOKEN + DIGEST_TOKEN + "@UNKNOWN@")
         with self.assertRaisesRegex(ValueError, "unresolved placeholder"):
             validate_installer(
-                f'readonly OMFG_VERSION="0.2.0"\nreadonly EXPECTED_SHA256="{digest}"\n@UNKNOWN@',
-                "0.2.0",
+                f'readonly OMFG_VERSION="0.2.1"\nreadonly EXPECTED_SHA256="{digest}"\n@UNKNOWN@',
+                "0.2.1",
                 digest,
             )
 
     def test_installer_rejects_invalid_digest_and_duplicate_declarations(self) -> None:
         template = (
-            f'readonly OMFG_VERSION="{VERSION_TOKEN}"\nreadonly EXPECTED_SHA256="{DIGEST_TOKEN}"\n'
+            f'readonly OMFG_VERSION="{VERSION_TOKEN}"\n{GITHUB_RELEASE_BASE}\n'
+            f'readonly EXPECTED_SHA256="{DIGEST_TOKEN}"\n'
         )
         with self.assertRaisesRegex(ValueError, "64 lowercase"):
-            render_installer(template, "0.2.0", "A" * 64)
-        rendered = render_installer(template, "0.2.0", "a" * 64)
+            render_installer(template, "0.2.1", "A" * 64)
+        rendered = render_installer(template, "0.2.1", "a" * 64)
         with self.assertRaisesRegex(ValueError, "one checksum declaration"):
             validate_installer(
-                rendered + 'readonly EXPECTED_SHA256="' + "a" * 64 + '"\n', "0.2.0", "a" * 64
+                rendered + 'readonly EXPECTED_SHA256="' + "a" * 64 + '"\n', "0.2.1", "a" * 64
             )
 
     def test_installer_rejects_wrong_archive_filename(self) -> None:
@@ -143,40 +145,56 @@ class ReleaseToolTests(unittest.TestCase):
             template = root / "install.in"
             template.write_text(VERSION_TOKEN + DIGEST_TOKEN, encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "must be named"):
-                build_installer(template, "0.2.0", archive, root / "install")
+                build_installer(template, "0.2.1", archive, root / "install")
 
     def test_published_installer_has_literal_digest_and_no_checksum_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw)
-            archive, digest = build(Path.cwd(), output, "v0.2.0", allow_dirty=True)
+            archive, digest = build(Path.cwd(), output, "v0.2.1", allow_dirty=True)
             installer = (output / "install").read_text(encoding="utf-8")
-            self.assertEqual(installer.count('readonly OMFG_VERSION="0.2.0"'), 1)
+            self.assertEqual(installer.count('readonly OMFG_VERSION="0.2.1"'), 1)
             self.assertEqual(installer.count(f'readonly EXPECTED_SHA256="{digest}"'), 1)
             self.assertNotIn("OMFG_RELEASE_SHA256", installer)
             self.assertNotIn(f"{archive.name}.sha256", installer)
             self.assertNotRegex(installer, r"curl[^\n]*\.sha256")
+            self.assertEqual(installer.count(GITHUB_RELEASE_BASE), 1)
+            self.assertNotIn("https://omfg.luigiverona.dev", installer)
+            self.assertNotIn("latest/download", installer)
+            self.assertNotIn("releases/latest", installer)
+            self.assertNotIn("api.github.com", installer)
+            self.assertIn(
+                'release_url="${RELEASE_BASE}/v${OMFG_VERSION}/omfg-${OMFG_VERSION}.tar.gz"',
+                installer,
+            )
+            for forbidden in (
+                "https://omfg.luigiverona.dev/releases",
+                "https://example.test/releases/v",
+                "https://github.com/luigiverona/omfg/releases/latest",
+                "https://github.com/luigiverona/omfg/latest/download",
+                "https://api.github.com/repos/luigiverona/omfg/releases",
+            ):
+                with (
+                    self.subTest(forbidden=forbidden),
+                    self.assertRaisesRegex(
+                        ValueError, "GitHub Release base|forbidden release source"
+                    ),
+                ):
+                    validate_installer(
+                        installer.replace(GITHUB_RELEASE_BASE, forbidden), "0.2.1", digest
+                    )
 
     def test_site_uses_release_installer_and_contains_only_distribution_surface(self) -> None:
         root = Path.cwd()
         with tempfile.TemporaryDirectory() as assets_raw, tempfile.TemporaryDirectory() as site_raw:
             assets = Path(assets_raw)
-            build(root, assets, "v0.2.0", allow_dirty=True)
+            build(root, assets, "v0.2.1", allow_dirty=True)
             site = Path(site_raw) / "site"
-            build_site(root, assets, site, "v0.2.0", skip_runtime_validation=True)
-            files = {
-                path.relative_to(site).as_posix() for path in site.rglob("*") if path.is_file()
-            }
-            self.assertEqual(
-                files,
-                {
-                    "index.html",
-                    "install",
-                    "releases/v0.2.0/install",
-                    "releases/v0.2.0/SHA256SUMS",
-                    "releases/v0.2.0/omfg-0.2.0.tar.gz",
-                    "releases/v0.2.0/omfg-0.2.0.tar.gz.sha256",
-                },
-            )
+            build_site(root, assets, site, "v0.2.1", skip_runtime_validation=True)
+            entries = {path.relative_to(site) for path in site.rglob("*")}
+            self.assertEqual(entries, {Path("install")})
+            self.assertFalse((site / "install").is_symlink())
+            self.assertFalse((site / "index.html").exists())
+            self.assertFalse((site / "releases").exists())
             self.assertEqual((site / "install").read_bytes(), (assets / "install").read_bytes())
             self.assertNotEqual(
                 (site / "install").read_bytes(), (root / "bootstrap/install.in").read_bytes()
@@ -185,7 +203,7 @@ class ReleaseToolTests(unittest.TestCase):
     def test_site_rejects_installer_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as assets_raw, tempfile.TemporaryDirectory() as site_raw:
             assets = Path(assets_raw)
-            build(Path.cwd(), assets, "v0.2.0", allow_dirty=True)
+            build(Path.cwd(), assets, "v0.2.1", allow_dirty=True)
             installer = assets / "install"
             installer.write_text(
                 installer.read_text().replace(
@@ -201,7 +219,7 @@ class ReleaseToolTests(unittest.TestCase):
                     Path.cwd(),
                     assets,
                     Path(site_raw) / "site",
-                    "v0.2.0",
+                    "v0.2.1",
                     skip_runtime_validation=True,
                 )
 
@@ -213,7 +231,7 @@ class ReleaseToolTests(unittest.TestCase):
                 tempfile.TemporaryDirectory() as site_raw,
             ):
                 assets = Path(assets_raw)
-                build(Path.cwd(), assets, "v0.2.0", allow_dirty=True)
+                build(Path.cwd(), assets, "v0.2.1", allow_dirty=True)
                 if mutation == "missing":
                     (assets / "install").unlink()
                 else:
@@ -223,23 +241,54 @@ class ReleaseToolTests(unittest.TestCase):
                         Path.cwd(),
                         assets,
                         Path(site_raw) / "site",
-                        "v0.2.0",
+                        "v0.2.1",
                         skip_runtime_validation=True,
                     )
+
+    def test_site_rejects_symlink_installer_output(self) -> None:
+        with tempfile.TemporaryDirectory() as assets_raw, tempfile.TemporaryDirectory() as site_raw:
+            assets = Path(assets_raw)
+            build(Path.cwd(), assets, "v0.2.1", allow_dirty=True)
+            original = Path(site_raw) / "original-install"
+            (assets / "install").rename(original)
+            (assets / "install").symlink_to(original)
+            with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                build_site(
+                    Path.cwd(),
+                    assets,
+                    Path(site_raw) / "site",
+                    "v0.2.1",
+                    skip_runtime_validation=True,
+                )
+
+    def test_site_rejects_invalid_archive_checksum(self) -> None:
+        with tempfile.TemporaryDirectory() as assets_raw, tempfile.TemporaryDirectory() as site_raw:
+            assets = Path(assets_raw)
+            build(Path.cwd(), assets, "v0.2.1", allow_dirty=True)
+            checksum = assets / "omfg-0.2.1.tar.gz.sha256"
+            checksum.write_text("0" * 64 + "  omfg-0.2.1.tar.gz\n", encoding="ascii")
+            with self.assertRaises(subprocess.CalledProcessError):
+                build_site(
+                    Path.cwd(),
+                    assets,
+                    Path(site_raw) / "site",
+                    "v0.2.1",
+                    skip_runtime_validation=True,
+                )
 
     def test_release_notes_preflight_rejects_missing_empty_and_wrong_version(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             with self.assertRaisesRegex(ValueError, "missing"):
-                validate_release_notes(root, "0.2.0")
-            notes = root / "docs/releases/v0.2.0.md"
+                validate_release_notes(root, "0.2.1")
+            notes = root / "docs/releases/v0.2.1.md"
             notes.parent.mkdir(parents=True)
             notes.write_text("", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "empty"):
-                validate_release_notes(root, "0.2.0")
+                validate_release_notes(root, "0.2.1")
             notes.write_text("# Omfg 0.1.1\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "heading"):
-                validate_release_notes(root, "0.2.0")
+                validate_release_notes(root, "0.2.1")
 
     def test_workflow_contract_uses_four_assets_and_main_dispatch(self) -> None:
         release = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -261,7 +310,7 @@ class ReleaseToolTests(unittest.TestCase):
         root = Path.cwd()
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
-            archive = directory / "omfg-0.2.0.tar.gz"
+            archive = directory / "omfg-0.2.1.tar.gz"
             payload = io.BytesIO()
             epoch = int(
                 subprocess.run(
@@ -272,7 +321,7 @@ class ReleaseToolTests(unittest.TestCase):
                 ).stdout.strip()
             )
             with tarfile.open(fileobj=payload, mode="w", format=tarfile.USTAR_FORMAT) as bundle:
-                link = tarfile.TarInfo("omfg-0.2.0/link")
+                link = tarfile.TarInfo("omfg-0.2.1/link")
                 link.type = tarfile.SYMTYPE
                 link.linkname = "/etc/passwd"
                 link.mtime = epoch
@@ -286,10 +335,11 @@ class ReleaseToolTests(unittest.TestCase):
             checksum.write_text(f"{digest}  {archive.name}\n", encoding="ascii")
             template = directory / "install.in"
             template.write_text(
-                f'#!/bin/sh\nreadonly OMFG_VERSION="{VERSION_TOKEN}"\nreadonly EXPECTED_SHA256="{DIGEST_TOKEN}"\n',
+                f'#!/bin/sh\nreadonly OMFG_VERSION="{VERSION_TOKEN}"\n{GITHUB_RELEASE_BASE}\n'
+                f'readonly EXPECTED_SHA256="{DIGEST_TOKEN}"\n',
                 encoding="utf-8",
             )
-            build_installer(template, "0.2.0", archive, directory / "install")
+            build_installer(template, "0.2.1", archive, directory / "install")
             installer_digest = hashlib.sha256((directory / "install").read_bytes()).hexdigest()
             sums = directory / "SHA256SUMS"
             sums.write_text(

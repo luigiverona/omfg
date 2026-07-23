@@ -2,10 +2,10 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly TAG="${OMFG_TEST_TAG:-v0.2.0}"
+readonly TAG="${OMFG_TEST_TAG:-v0.2.1}"
 readonly VERSION="${TAG#v}"
 readonly PAGES_BASE="${OMFG_TEST_PAGES_BASE:-https://luigiverona.github.io/omfg}"
-readonly RELEASE_BASE="${PAGES_BASE}/releases"
+readonly RELEASE_BASE="${OMFG_TEST_RELEASE_BASE:-https://github.com/luigiverona/omfg/releases/download}"
 readonly INSTALLER="/tmp/omfg-bootstrap-test-install"
 readonly TAMPERED_INSTALLER="/tmp/omfg-bootstrap-test-install-tampered"
 readonly ARCHIVE="/tmp/omfg-bootstrap-test-${VERSION}.tar.gz"
