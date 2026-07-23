@@ -65,10 +65,11 @@ jobs:
           test "$status" -eq 1
           grep -Fx 'Status' /tmp/status-output
           grep -Fx 'Workstation is not ready.' /tmp/status-output
-          ! grep -F 'Traceback' /tmp/status-output
-          ! grep -F '[sudo]' /tmp/status-output
-          ! grep -Fx 'Plan' /tmp/status-output
-          ! grep -F 'Continue?' /tmp/status-output
-          ! grep -F 'Setup complete.' /tmp/status-output
+          if grep -E 'Traceback|\[sudo\]|Continue\?|Setup complete\.' /tmp/status-output; then
+            exit 1
+          fi
+          if grep -Fx 'Plan' /tmp/status-output; then
+            exit 1
+          fi
           find /home/omfg-ci -xdev -printf '%P\t%m\t%s\t%T@\n' | sort > /tmp/status-after
           cmp /tmp/status-before /tmp/status-after
